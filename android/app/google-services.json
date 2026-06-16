@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "348506371188",
+    "project_id": "finlapa-app",
+    "storage_bucket": "finlapa-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:348506371188:android:248dae2e3b6f4117338d21",
+        "android_client_info": {
+          "package_name": "com.finlapa"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "348506371188-6pf46hl4vv6o9jvqqil6c7see75agoo7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.finlapa",
+            "certificate_hash": "457015b6a1742531a6d82225e161f849ca097943"
+          }
+        },
+        {
+          "client_id": "348506371188-dah5gjuuo7q4tnpjnf70b54akdtpghd3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmMZl4GAZdIc3YzfuHJ5ZBbJO8FJHNKvU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "348506371188-dah5gjuuo7q4tnpjnf70b54akdtpghd3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
