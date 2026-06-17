@@ -1,53 +1,46 @@
 import 'package:flutter/material.dart';
 
-class ModuleBuilderModal extends StatefulWidget {
-  final Future<void> Function(String moduleName, List<String> fields, int iconCode, int colorValue) onSave;
+class ModuleEditModal extends StatefulWidget {
+  final Map<String, dynamic> initialDashboard;
+  final Function(String moduleName, List<String> fields, int iconCode, int colorValue) onSave;
 
-  const ModuleBuilderModal({super.key, required this.onSave});
+  const ModuleEditModal({super.key, required this.initialDashboard, required this.onSave});
 
   @override
-  State<ModuleBuilderModal> createState() => _ModuleBuilderModalState();
+  State<ModuleEditModal> createState() => _ModuleEditModalState();
 }
-class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
-  bool _isSaving = false; // <--- ОСЬ ЦЕЙ РЯДОК ЗАГУБИВСЯ!
-  
-  String _moduleName = "";
-  final List<String> _fields = []; 
+
+class _ModuleEditModalState extends State<ModuleEditModal> {
+  late TextEditingController _nameController;
   final TextEditingController _fieldController = TextEditingController();
   
-  IconData _selectedIcon = Icons.monetization_on;
-  Color _selectedColor = Colors.green;
+  late String _moduleName;
+  late IconData _selectedIcon;
+  late Color _selectedColor;
+  
+  final List<String> _fields = []; 
+  int _lockedFieldsCount = 0; // Скільки полів не можна чіпати
 
-  // ВЕЛИЧЕЗНА БІБЛІОТЕКА ІКОНОК (100 штук на всі випадки життя)
+  // ВЕЛИЧЕЗНА БІБЛІОТЕКА ІКОНОК (як у твоєму коді)
   final List<IconData> _iconOptions = [
-    // Фінанси та Гроші
     Icons.monetization_on, Icons.attach_money, Icons.euro, Icons.currency_pound, Icons.currency_bitcoin,
     Icons.account_balance, Icons.account_balance_wallet, Icons.savings, Icons.credit_card, Icons.receipt,
-    // Торгівля та Магазин
     Icons.shopping_cart, Icons.shopping_basket, Icons.shopping_bag, Icons.storefront, Icons.local_shipping,
     Icons.local_mall, Icons.sell, Icons.price_check, Icons.loyalty, Icons.card_giftcard,
-    // Робота та Аналітика
     Icons.work, Icons.business_center, Icons.cases, Icons.assignment, Icons.folder,
     Icons.description, Icons.analytics, Icons.trending_up, Icons.pie_chart, Icons.bar_chart,
-    // Техніка та Ігри (3D друк, Nintendo)
     Icons.computer, Icons.laptop, Icons.smartphone, Icons.tablet_mac, Icons.watch,
     Icons.sports_esports, Icons.gamepad, Icons.memory, Icons.mouse, Icons.keyboard,
     Icons.print, Icons.camera_alt, Icons.headphones, Icons.speaker, Icons.tv,
-    // Авто та Ремонт (Склад тата)
     Icons.directions_car, Icons.local_taxi, Icons.two_wheeler, Icons.pedal_bike, Icons.flight,
     Icons.local_gas_station, Icons.build, Icons.handyman, Icons.construction, Icons.tire_repair,
-    // Предмети та Інвентар
     Icons.inventory_2, Icons.layers, Icons.category, Icons.extension, Icons.toys,
     Icons.chair, Icons.bed, Icons.checkroom, Icons.watch, Icons.diamond,
-    // Їжа та Напої
     Icons.restaurant, Icons.local_cafe, Icons.local_pizza, Icons.fastfood, Icons.local_bar,
     Icons.cake, Icons.bakery_dining, Icons.apple, Icons.liquor, Icons.emoji_food_beverage,
-    // Нерухомість та Дім
     Icons.home, Icons.house, Icons.apartment, Icons.domain, Icons.key,
-    // Життя, Хобі, Спорт
     Icons.favorite, Icons.health_and_safety, Icons.medical_services, Icons.fitness_center, Icons.sports_soccer,
     Icons.pets, Icons.school, Icons.menu_book, Icons.music_note, Icons.palette,
-    // Абстрактні та Інтерфейс
     Icons.star, Icons.bolt, Icons.flash_on, Icons.lightbulb, Icons.notifications,
     Icons.push_pin, Icons.bookmark, Icons.label, Icons.flag, Icons.shield
   ];
@@ -58,36 +51,46 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
     Colors.indigo, Colors.orange, Colors.pinkAccent
   ];
 
-  final List<String> _suggestedFields = ['Сума', 'Товар', 'Послуга', 'Кількість', '№', 'Нотатки'];
+  @override
+  void initState() {
+    super.initState();
+    // Підтягуємо існуючі дані
+    _moduleName = widget.initialDashboard['title'];
+    _nameController = TextEditingController(text: _moduleName);
+    
+    _selectedIcon = IconData(widget.initialDashboard['icon'] ?? Icons.dashboard.codePoint, fontFamily: 'MaterialIcons');
+    _selectedColor = Color(widget.initialDashboard['color'] ?? Colors.green.value);
+    
+    _fields.addAll(List<String>.from(widget.initialDashboard['fields']));
+    _lockedFieldsCount = _fields.length; // Запам'ятовуємо, скільки полів було спочатку
+  }
 
   @override
   void dispose() {
+    _nameController.dispose();
     _fieldController.dispose();
     super.dispose();
   }
 
-  // Оновлене вікно вибору іконок (високе, зі скролом)
   void _showPicker(String title, List<IconData> icons) {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Дозволяємо вікну бути великим
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => FractionallySizedBox(
-        heightFactor: 0.7, // Займає 70% екрану, щоб було зручно гортати 100 іконок
+        heightFactor: 0.7,
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text("Оберіть іконку", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.all(16),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 5, 
-                  crossAxisSpacing: 15, 
-                  mainAxisSpacing: 15
+                  crossAxisCount: 5, crossAxisSpacing: 15, mainAxisSpacing: 15
                 ),
                 itemCount: icons.length,
                 itemBuilder: (context, index) => InkWell(
@@ -124,7 +127,7 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text("Створити джерело", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text("Налаштування модуля", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             
             Row(
@@ -138,7 +141,7 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                     child: Icon(_selectedIcon, color: _selectedColor, size: 30),
                   ),
                 ),
-                const Text("➔ Клікніть на іконку для вибору"),
+                const Text("➔ Клікніть для зміни"),
               ],
             ),
             const SizedBox(height: 20),
@@ -165,23 +168,45 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
             
             const SizedBox(height: 20),
             TextField(
-              decoration: const InputDecoration(labelText: "Назва", border: OutlineInputBorder()),
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: "Назва модуля", border: OutlineInputBorder()),
               onChanged: (val) => _moduleName = val,
             ),
             const SizedBox(height: 20),
             
             const Text("Поля таблиці:", style: TextStyle(fontWeight: FontWeight.bold)),
-            Wrap(
-              spacing: 8,
-              children: _suggestedFields.map((f) => ActionChip(
-                label: Text('+ $f'),
-                onPressed: () { if (!_fields.contains(f)) setState(() => _fields.add(f)); },
-              )).toList(),
+            const SizedBox(height: 8),
+            
+            // Список полів (старі з замочком, нові з корзиною)
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: _fields.asMap().entries.map((entry) {
+                  int idx = entry.key;
+                  String field = entry.value;
+                  bool isLocked = idx < _lockedFieldsCount;
+
+                  return ListTile(
+                    dense: true,
+                    title: Text(field, style: TextStyle(color: isLocked ? Colors.grey.shade700 : Colors.black, fontWeight: isLocked ? FontWeight.normal : FontWeight.bold)),
+                    trailing: isLocked
+                        ? const Icon(Icons.lock_outline, size: 18, color: Colors.grey)
+                        : IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                            onPressed: () => setState(() => _fields.removeAt(idx)),
+                          ),
+                  );
+                }).toList(),
+              ),
             ),
+            const SizedBox(height: 10),
             
             Row(
               children: [
-                Expanded(child: TextField(controller: _fieldController, decoration: const InputDecoration(hintText: "Своє поле..."))),
+                Expanded(child: TextField(controller: _fieldController, decoration: const InputDecoration(hintText: "Додати нове поле..."))),
                 IconButton(
                   icon: const Icon(Icons.add_circle, color: Colors.blueAccent),
                   onPressed: () {
@@ -194,25 +219,6 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
               ],
             ),
             
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 100,
-              child: ReorderableListView(
-                shrinkWrap: true,
-                children: _fields.map((f) => ListTile(
-                  key: ValueKey(f),
-                  title: Text(f, style: const TextStyle(fontSize: 14)),
-                  trailing: const Icon(Icons.drag_handle, size: 18),
-                )).toList(),
-                onReorder: (oldIdx, newIdx) {
-                  setState(() {
-                    if (newIdx > oldIdx) newIdx -= 1;
-                    _fields.insert(newIdx, _fields.removeAt(oldIdx));
-                  });
-                },
-              ),
-            ),
-            
             const SizedBox(height: 16),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -220,27 +226,12 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                 backgroundColor: _selectedColor, 
                 foregroundColor: Colors.white
               ),
-              // Якщо _isSaving == true, ставимо null (це вимикає кнопку)
-              onPressed: _isSaving ? null : () async {
+              onPressed: () {
                 if (_moduleName.isNotEmpty && _fields.isNotEmpty) {
-                  // 1. Вмикаємо крутилку і блокуємо кнопку
-                  setState(() => _isSaving = true); 
-                  
-                  // 2. Чекаємо, поки дані відправляться в Google
-                  await widget.onSave(_moduleName, _fields, _selectedIcon.codePoint, _selectedColor.value);
-                  
-                  // Нам навіть не треба повертати _isSaving = false, 
-                  // бо після збереження вікно просто закривається!
+                  widget.onSave(_moduleName, _fields, _selectedIcon.codePoint, _selectedColor.value);
                 }
               },
-              // Змінюємо текст на крутилку, якщо йде збереження
-              child: _isSaving 
-                  ? const SizedBox(
-                      height: 20, 
-                      width: 20, 
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                    )
-                  : const Text("Зберегти модуль"),
+              child: const Text("Зберегти зміни"),
             ),
             const SizedBox(height: 24),
           ],

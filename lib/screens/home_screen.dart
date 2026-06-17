@@ -3,6 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../services/prefs_service.dart';
 import '../widgets/settings_modal.dart';
 import 'tabs/income_tab.dart';
+import 'tabs/edit_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   final GoogleSignInAccount user;

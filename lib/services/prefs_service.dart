@@ -13,7 +13,7 @@ class PrefsService {
   }
 
   // НОВІ МЕТОДИ ДЛЯ ДИНАМІЧНИХ ДАШБОРДІВ
-  // Зберігаємо список створених карток (назва + масив полів)
+  // Зберігаємо список створених карток (назва + масив полів) та кеш історії
   static Future<void> saveCustomDashboards(String category, List<Map<String, dynamic>> dashboards) async {
     final prefs = await SharedPreferences.getInstance();
     final String jsonString = jsonEncode(dashboards);

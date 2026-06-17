@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../services/sheets_api.dart';
+import '../services/prefs_service.dart';
 
 class HistoryScreen extends StatefulWidget {
   final GoogleSignInAccount user;
@@ -20,6 +21,7 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   bool _isLoading = true;
+  bool _isOffline = false; // Додаємо прапорець офлайну
   List<List<String>> _allData = [];
   List<List<String>> _filteredData = [];
   List<String> _headers = [];
@@ -33,16 +35,54 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _fetchData();
   }
 
-  Future<void> _fetchData() async {
+ Future<void> _fetchData() async {
     try {
       final data = await SheetsApi.readSheetData(user: widget.user, sheetName: widget.dashboardTitle);
-      if (data.isNotEmpty) {
-        _headers = data.first; // Перший рядок - це заголовки
-        _allData = data.sublist(1).reversed.toList(); // Інші рядки - дані (перевертаємо, щоб нові були зверху)
-        _filteredData = List.from(_allData);
+      
+      if (data.isNotEmpty && mounted) {
+        List<Map<String, dynamic>> rowsToCache = data.map((row) => {'row': row}).toList();
+        await PrefsService.saveCustomDashboards('cache_rows_${widget.dashboardTitle}', rowsToCache);
+
+        setState(() {
+          _headers = data.first; 
+          _allData = data.sublist(1).reversed.toList(); 
+          _filteredData = List.from(_allData);
+          _isOffline = false;
+        });
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Помилка: $e')));
+      final errorStr = e.toString();
+      
+      if (errorStr.contains('SocketException') || errorStr.contains('Failed host lookup') || errorStr.contains('ClientException')) {
+        if (!mounted) return;
+        setState(() => _isOffline = true);
+
+        final cachedData = await PrefsService.getCustomDashboards('cache_rows_${widget.dashboardTitle}');
+        if (cachedData.isNotEmpty && mounted) {
+          List<List<String>> parsedData = cachedData.map<List<String>>((item) {
+            final dynamicList = item['row'] as List<dynamic>? ?? [];
+            return dynamicList.map((e) => e.toString()).toList();
+          }).toList();
+
+          setState(() {
+            _headers = parsedData.isNotEmpty ? parsedData.first : [];
+            _allData = parsedData.length > 1 ? parsedData.sublist(1).reversed.toList() : [];
+            _filteredData = List.from(_allData);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Офлайн: Показано записи з кешу'), backgroundColor: Colors.orange, duration: Duration(seconds: 2)));
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Немає інтернету. Ця вкладка ще не кешувалася.'), backgroundColor: Colors.redAccent));
+        }
+      } else {
+        // ІНТЕРНЕТ Є! Таблиця порожня
+        if (!mounted) return;
+        setState(() {
+          _isOffline = false;
+          _headers = [];
+          _allData = [];
+          _filteredData = [];
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -52,7 +92,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void _applyFilter(String filter) {
     setState(() {
       _currentFilter = filter;
-      _customDateRange = null; // Скидаємо кастомний період
+      _customDateRange = null; 
       
       if (filter == 'Всі') {
         _filteredData = List.from(_allData);
@@ -62,9 +102,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final now = DateTime.now();
       _filteredData = _allData.where((row) {
         if (row.isEmpty) return false;
-        // Наша дата завжди в першій колонці (формат: 2026-06-17 12:13)
         final dateStr = row[0]; 
-        // Додаємо :00 щоб парсер точно зрозумів формат
         final rowDate = DateTime.tryParse("$dateStr:00"); 
         if (rowDate == null) return false;
 
@@ -99,7 +137,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
           if (row.isEmpty) return false;
           final rowDate = DateTime.tryParse("${row[0]}:00");
           if (rowDate == null) return false;
-          // Перевіряємо, чи входить дата в обраний діапазон
           return rowDate.isAfter(picked.start.subtract(const Duration(days: 1))) && 
                  rowDate.isBefore(picked.end.add(const Duration(days: 1)));
         }).toList();
@@ -116,6 +153,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: Column(
         children: [
+          // --- ВІЗУАЛЬНИЙ ІНДИКАТОР ОФЛАЙНУ ---
+          if (_isOffline)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              color: Colors.redAccent.withOpacity(0.1),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    "Офлайн режим (тільки читання)", 
+                    style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)
+                  ),
+                ],
+              ),
+            ),
+
           // ПАНЕЛЬ ФІЛЬТРІВ
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -181,10 +237,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                       const Divider(),
                                       // Виводимо всі інші поля, які користувач створив у конструкторі
                                       ...List.generate(_headers.length - 1, (i) {
-                                        // +1 бо перша колонка це дата
                                         final colIndex = i + 1;
-                                        final header = _headers[colIndex];
-                                        final value = colIndex < row.length ? row[colIndex] : '-'; // Захист, якщо клітинка в таблиці порожня
+                                        final header = _headers.length > colIndex ? _headers[colIndex] : 'Поле';
+                                        final value = colIndex < row.length ? row[colIndex] : '-'; 
                                         
                                         return Padding(
                                           padding: const EdgeInsets.only(bottom: 4),
