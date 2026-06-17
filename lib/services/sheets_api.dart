@@ -6,7 +6,6 @@ class SheetsApi {
   
   // --- НОВІ ФУНКЦІЇ ДЛЯ ХМАРНОГО КОНФІГУ (APP_CONFIG) ---
 
-  // Читання конфігурації
   // Читання конфігурації (БЕЗПЕЧНА ВЕРСІЯ З ПЕРЕВІРКОЮ МЕРЕЖІ)
   static Future<List<Map<String, dynamic>>> readAppConfig({required GoogleSignInAccount user}) async {
     try {
@@ -72,7 +71,66 @@ class SheetsApi {
     }
   }
 
-  // --- ТВОЇ СТАРІ ПЕРЕВІРЕНІ ФУНКЦІЇ (БЕЗ ЗМІН) ---
+  // --- НОВА ФУНКЦІЯ: ПЕРЕЙМЕНУВАННЯ АРКУША В GOOGLE ТАБЛИЦІ ---
+  static Future<void> renameSheet({
+    required GoogleSignInAccount user,
+    required String oldTitle,
+    required String newTitle,
+  }) async {
+    if (oldTitle == newTitle) return; // Немає сенсу робити запит, якщо назва не змінилася
+
+    final authHeaders = await user.authHeaders;
+    final token = authHeaders['Authorization']!;
+    final docId = await _getOrCreateSpreadsheet(token);
+
+    // 1. Завантажуємо метадані всієї таблиці, щоб знайти sheetId потрібного аркуша
+    final metaUrl = Uri.parse('https://sheets.googleapis.com/v4/spreadsheets/$docId');
+    final metaRes = await http.get(metaUrl, headers: {'Authorization': token});
+
+    if (metaRes.statusCode != 200) throw Exception("Не вдалося отримати метадані таблиці");
+    final metaData = jsonDecode(metaRes.body);
+
+    int? targetSheetId;
+
+    // Шукаємо наш аркуш за старою назвою
+    for (var sheet in metaData['sheets']) {
+      if (sheet['properties']['title'] == oldTitle) {
+        targetSheetId = sheet['properties']['sheetId'];
+        break;
+      }
+    }
+
+    // Якщо такого аркуша немає (він порожній і ще не створився) — просто виходимо
+    if (targetSheetId == null) return; 
+
+    // 2. Відправляємо запит batchUpdate на перейменування
+    final updateUrl = Uri.parse('https://sheets.googleapis.com/v4/spreadsheets/$docId:batchUpdate');
+    final updateBody = {
+      "requests": [
+        {
+          "updateSheetProperties": {
+            "properties": {
+              "sheetId": targetSheetId,
+              "title": newTitle
+            },
+            "fields": "title" // Вказуємо, що міняємо тільки назву
+          }
+        }
+      ]
+    };
+
+    final updateRes = await http.post(
+      updateUrl,
+      headers: {'Authorization': token, 'Content-Type': 'application/json'},
+      body: jsonEncode(updateBody),
+    );
+
+    if (updateRes.statusCode != 200) {
+      throw Exception("Помилка при перейменуванні аркуша");
+    }
+  }
+
+  // --- СТАРІ ПЕРЕВІРЕНІ ФУНКЦІЇ ---
 
   // Стара функція для витрат/складу (поки залишаємо)
   static Future<void> sendTransaction({required GoogleSignInAccount user, required String sheetName, required String activity, required String type, required double amount}) async {
@@ -103,7 +161,7 @@ class SheetsApi {
     }
   }
 
-  // Читання даних з таблиці (ВИПРАВЛЕНА ТИПІЗАЦІЯ)
+  // Читання даних з таблиці
   static Future<List<List<String>>> readSheetData({required GoogleSignInAccount user, required String sheetName}) async {
     final authHeaders = await user.authHeaders;
     final token = authHeaders['Authorization']!;
@@ -117,7 +175,6 @@ class SheetsApi {
       final values = data['values'] as List<dynamic>?;
       if (values == null) return [];
       
-      // Чітко вказуємо Dart'у, що ми перетворюємо кожен рядок на список тексту (String)
       return values.map<List<String>>((row) {
         return (row as List<dynamic>).map<String>((e) => e.toString()).toList();
       }).toList();
@@ -161,17 +218,42 @@ class SheetsApi {
     );
   }
 
-  // НОВИЙ ВНУТРІШНІЙ МЕТОД: Перезапис аркуша (щоб старі модулі зникали при видаленні)
   static Future<bool> _overwriteSheetData(String token, String docId, String sheetName, List<List<dynamic>> rows) async {
-    // 1. Спочатку очищуємо весь аркуш
     final clearUrl = Uri.parse('https://sheets.googleapis.com/v4/spreadsheets/$docId/values/$sheetName:clear');
     await http.post(clearUrl, headers: {'Authorization': token});
 
-    // 2. Записуємо нову матрицю даних з самого початку (A1)
     final url = Uri.parse('https://sheets.googleapis.com/v4/spreadsheets/$docId/values/$sheetName!A1?valueInputOption=USER_ENTERED');
     final response = await http.put(url, headers: {'Authorization': token, 'Content-Type': 'application/json'},
       body: jsonEncode({'values': rows}),
     );
     return response.statusCode == 200;
   }
+// --- ФУНКЦІЯ РЕДАГУВАННЯ КОНКРЕТНОГО РЯДКА ЗА ЙОГО ІНДЕКСОМ ---
+  static Future<void> updateRowData({
+    required GoogleSignInAccount user,
+    required String sheetName,
+    required int rowIndex, // Номер рядка в Google Sheets (починаючи з 1)
+    required List<dynamic> newValues,
+  }) async {
+    final authHeaders = await user.authHeaders;
+    final token = authHeaders['Authorization']!;
+    final docId = await _getOrCreateSpreadsheet(token);
+
+    // Формуємо діапазон, наприклад: "Продажі!A45:Z45"
+    // Юзер вводить дані з датою, тому DateTime ми теж туди передамо
+    final range = '$sheetName!A$rowIndex';
+
+    final url = Uri.parse('https://sheets.googleapis.com/v4/spreadsheets/$docId/values/$range?valueInputOption=USER_ENTERED');
+    
+    final response = await http.put(
+      url,
+      headers: {'Authorization': token, 'Content-Type': 'application/json'},
+      body: jsonEncode({'values': [newValues]}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Не вдалося оновити рядок в Google Таблиці: ${response.body}');
+    }
+  }
+
 }

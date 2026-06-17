@@ -3,7 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../../services/sheets_api.dart';
 import '../../services/prefs_service.dart';
 import '../../widgets/module_edit_modal.dart';
-import '../../widgets/record_edit_modal.dart';
+import '../../widgets/records_manager.dart'; // Наш новий модуль!
 
 class EditTab extends StatefulWidget {
   final GoogleSignInAccount user;
@@ -22,7 +22,7 @@ class EditTab extends StatefulWidget {
 class _EditTabState extends State<EditTab> {
   bool _isLoading = true;
   bool _isOffline = false;
-  List<List<String>> _recentData = [];
+  List<Map<String, dynamic>> _recentRecords = []; // Тепер зберігаємо з номерами рядків
   List<String> _headers = [];
 
   late String _title;
@@ -40,25 +40,21 @@ class _EditTabState extends State<EditTab> {
   }
 
   Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
     try {
-      // Пробуємо завантажити свіжі дані
       final data = await SheetsApi.readSheetData(user: widget.user, sheetName: _title);
       
       if (data.isNotEmpty && mounted) {
+        // Зберігаємо в кеш для офлайну
         List<Map<String, dynamic>> rowsToCache = data.map((row) => {'row': row}).toList();
         await PrefsService.saveCustomDashboards('cache_rows_$_title', rowsToCache);
 
-        setState(() {
-          _headers = data.first;
-          _recentData = data.length > 1 ? data.sublist(1).reversed.take(20).toList() : [];
-        });
+        _parseDataWithIndexes(data);
+        setState(() => _isOffline = false);
       }
     } catch (e) {
       final errorStr = e.toString();
-      
-      // ПЕРЕВІРКА: Це дійсно немає інтернету?
-      if (errorStr.contains('SocketException') || errorStr.contains('Failed host lookup') || errorStr.contains('ClientException')) {
-        print("Справжній офлайн в EditTab: $e");
+      if (errorStr.contains('SocketException') || errorStr.contains('Failed host lookup')) {
         if (!mounted) return;
         setState(() => _isOffline = true);
         
@@ -69,76 +65,103 @@ class _EditTabState extends State<EditTab> {
             return dynamicList.map((e) => e.toString()).toList();
           }).toList();
 
-          setState(() {
-            _headers = parsedData.isNotEmpty ? parsedData.first : [];
-            _recentData = parsedData.length > 1 ? parsedData.sublist(1).reversed.take(20).toList() : [];
-          });
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Офлайн: Показано записи з кешу'), backgroundColor: Colors.orange, duration: Duration(seconds: 2)));
+          _parseDataWithIndexes(parsedData);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Офлайн: Показано записи з кешу'), backgroundColor: Colors.orange));
         } else if (mounted) {
-          setState(() { _headers = []; _recentData = []; });
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Немає інтернету. Ця вкладка ще не кешувалася.'), backgroundColor: Colors.redAccent));
+          setState(() { _headers = []; _recentRecords = []; });
         }
       } else {
-        // ІНТЕРНЕТ Є! Просто таблиця ще порожня (не створена в Гуглі)
-        print("Таблиця порожня: $e");
         if (!mounted) return;
-        setState(() {
-          _isOffline = false; // Примусово кажемо, що ми ОНЛАЙН
-          _headers = [];
-          _recentData = [];
-        });
+        setState(() { _isOffline = false; _headers = []; _recentRecords = []; });
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // Призначаємо кожному запису номер рядка (Рядок 1 - це заголовки, дані починаються з 2)
+  void _parseDataWithIndexes(List<List<String>> data) {
+    if (data.isEmpty) return;
+    _headers = data.first;
+    
+    List<Map<String, dynamic>> recordsWithIndex = [];
+    for (int i = 1; i < data.length; i++) {
+      recordsWithIndex.add({
+        'rowIndex': i + 1, // i=1 -> рядок 2 в Екселі
+        'row': data[i],
+      });
+    }
+    
+    // Перевертаємо, щоб нові були зверху
+    setState(() {
+      _recentRecords = recordsWithIndex.reversed.toList();
+    });
+  }
+
+  // Ця функція миттєво замінює текст на екрані і в кеші
+  void _updateLocalRecord(int rowIndex, List<String> updatedRow) async {
+    setState(() {
+      final index = _recentRecords.indexWhere((r) => r['rowIndex'] == rowIndex);
+      if (index != -1) {
+        _recentRecords[index]['row'] = updatedRow;
+      }
+    });
+
+    // Оновлюємо локальний кеш, щоб при наступному вході без інтернету була актуальна інфа
+    final cachedData = await PrefsService.getCustomDashboards('cache_rows_$_title');
+    if (cachedData.isNotEmpty) {
+      // Шукаємо в кеші запис із такою ж датою і оновлюємо його
+      final cacheIndex = cachedData.indexWhere((item) {
+         final rowList = item['row'] as List<dynamic>? ?? [];
+         return rowList.isNotEmpty && rowList[0].toString() == updatedRow[0];
+      });
+      if (cacheIndex != -1) {
+        cachedData[cacheIndex]['row'] = updatedRow;
+        await PrefsService.saveCustomDashboards('cache_rows_$_title', cachedData);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-     appBar: AppBar(
-        title: Text('Мої фінанси', style: const TextStyle(fontWeight: FontWeight.bold)), // Або твоя назва
+      appBar: AppBar(
+        title: Text('Редагування: $_title', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         backgroundColor: _color.withOpacity(0.1),
-        actions: [
-          // Якщо ми в офлайні — показуємо червону хмаринку
-          if (_isOffline)
-            const Padding(
-              padding: EdgeInsets.only(right: 16.0),
-              child: Icon(Icons.cloud_off, color: Colors.redAccent),
-            ),
-        ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _color))
           : ListView(
               padding: const EdgeInsets.all(16.0),
               children: [
+                if (_isOffline)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    color: Colors.redAccent.withOpacity(0.1),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
+                        SizedBox(width: 8),
+                        Text("Офлайн режим (тільки читання)", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)),
+                      ],
+                    ),
+                  ),
+
                 // --- СЕКЦІЯ 1: Редагування модуля ---
-                const Text(
-                  "Редагування модуля",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black54),
-                ),
+                const Text("Налаштування модуля", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black54)),
                 const SizedBox(height: 10),
                 Card(
                   elevation: 2,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: _color,
-                      child: Icon(_icon, color: Colors.white),
-                    ),
+                    leading: CircleAvatar(backgroundColor: _color, child: Icon(_icon, color: Colors.white)),
                     title: Text(_title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: const Text("Змінити назву, колір, значок або додати поля"),
+                    subtitle: const Text("Змінити назву, колір, значок або поля"),
                     trailing: const Icon(Icons.settings_suggest, color: Colors.blueGrey),
                     onTap: () {
-                      // ЗАХИСТ ВІД ОФЛАЙН РЕДАГУВАННЯ
-                      if (_isOffline) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Редагування недоступне в офлайн режимі'), backgroundColor: Colors.redAccent)
-                        );
-                        return;
-                      }
-
+                      if (_isOffline) return;
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
@@ -146,8 +169,9 @@ class _EditTabState extends State<EditTab> {
                         builder: (context) => ModuleEditModal(
                           initialDashboard: widget.dashboard,
                           onSave: (newName, newFields, newIcon, newColor) async {
+                            final oldName = widget.dashboard['title']; 
                             final loaded = await PrefsService.getCustomDashboards('income_cache');
-                            final index = loaded.indexWhere((d) => d['title'] == widget.dashboard['title']);
+                            final index = loaded.indexWhere((d) => d['title'] == oldName);
                             
                             if (index != -1) {
                               loaded[index]['title'] = newName; 
@@ -156,120 +180,42 @@ class _EditTabState extends State<EditTab> {
                               loaded[index]['color'] = newColor;
                               
                               try {
+                                await SheetsApi.renameSheet(user: widget.user, oldTitle: oldName, newTitle: newName);
                                 await SheetsApi.saveAppConfig(user: widget.user, dashboards: loaded);
-                                await PrefsService.saveCustomDashboards('income_cache', loaded); // Оновлюємо кеш!
+                                await PrefsService.saveCustomDashboards('income_cache', loaded); 
                                 
                                 setState(() {
                                   _title = newName;
                                   _color = Color(newColor);
                                   _icon = IconData(newIcon, fontFamily: 'MaterialIcons');
                                 });
-
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Налаштування збережено!'), backgroundColor: Colors.green));
-                                }
                               } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Помилка збереження.'), backgroundColor: Colors.redAccent));
-                                }
+                                print(e);
                               }
                             }
-                            
                             if (context.mounted) Navigator.pop(context);
                           },
                         ),
-                      ); // <-- Ось тут була загублена дужка з крапкою з комою!
+                      );
                     },
                   ),
                 ),
 
                 const SizedBox(height: 30),
 
-                // --- СЕКЦІЯ 2: Останні записи ---
-                const Text(
-                  "Останні записи",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black54),
-                ),
+                // --- СЕКЦІЯ 2: НАШ НОВИЙ МОДУЛЬ ПОШУКУ ТА РЕДАГУВАННЯ ЗАПИСІВ ---
+                const Text("База записів", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black54)),
                 const SizedBox(height: 10),
                 
-                if (_recentData.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Center(child: Text("Немає записів для відображення", style: TextStyle(color: Colors.grey))),
-                  )
-                else
-                  ...List.generate(_recentData.length, (index) {
-                    final row = _recentData[index];
-                    final dateStr = row.isNotEmpty ? row[0] : 'Без дати';
-                    final mainValue = row.length > 1 ? row[1] : '...'; 
-
-                    List<String> extraFields = [];
-                    for (int i = 2; i < row.length && i < 4; i++) { 
-                      if (i < _headers.length) {
-                        extraFields.add("${_headers[i]}: ${row[i]}");
-                      }
-                    }
-
-                    return Card(
-                      elevation: 1,
-                      margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: ListTile(
-                          title: Text(mainValue, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (extraFields.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  extraFields.join(' • '), 
-                                  style: const TextStyle(color: Colors.black87, fontSize: 14)
-                                ),
-                              ],
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade500),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    dateStr, 
-                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12)
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.edit_note, color: Colors.blueGrey, size: 28),
-                            onPressed: () {
-                              // ЗАХИСТ ВІД ОФЛАЙН РЕДАГУВАННЯ
-                              if (_isOffline) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Редагування записів недоступне без інтернету'), backgroundColor: Colors.redAccent)
-                                );
-                                return;
-                              }
-                              showModalBottomSheet(
-                                context: context,
-                                isScrollControlled: true,
-                                shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                                builder: (context) => RecordEditModal(
-                                  headers: _headers,
-                                  rowData: row,
-                                  onSave: (newValues) {
-                                    print("Нові значення для таблиці: $newValues");
-                                    Navigator.pop(context);
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+                RecordsManager(
+                  user: widget.user,
+                  sheetName: _title,
+                  color: _color,
+                  headers: _headers,
+                  records: _recentRecords,
+                  isOffline: _isOffline,
+                  onRecordUpdated: _updateLocalRecord, // <--- ЗМІНИТИ ЦЕЙ РЯДОК
+                ),
               ],
             ),
     );
