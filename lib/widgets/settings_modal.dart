@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../services/prefs_service.dart';
+
+import '../data/repositories/settings_repository.dart';
+import '../models/module_type.dart';
 
 class SettingsModal extends StatefulWidget {
   final GoogleSignIn googleSignIn;
+  final SettingsRepository settingsRepository;
   final bool initialIncome;
   final bool initialExpense;
   final bool initialWarehouse;
-  final VoidCallback onSettingsChanged; // Сигнал, що налаштування змінилися
+  final VoidCallback onSettingsChanged;
 
   const SettingsModal({
     super.key,
     required this.googleSignIn,
+    required this.settingsRepository,
     required this.initialIncome,
     required this.initialExpense,
     required this.initialWarehouse,
@@ -36,6 +39,11 @@ class _SettingsModalState extends State<SettingsModal> {
     _showWarehouse = widget.initialWarehouse;
   }
 
+  Future<void> _toggleModule(ModuleType type, bool enabled) async {
+    await widget.settingsRepository.setModuleEnabled(type, enabled);
+    widget.onSettingsChanged();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -44,7 +52,10 @@ class _SettingsModalState extends State<SettingsModal> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text("Модулі системи", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const Text(
+            "Модулі системи",
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 16),
           SwitchListTile(
             title: const Text("Доходи"),
@@ -52,8 +63,7 @@ class _SettingsModalState extends State<SettingsModal> {
             value: _showIncome,
             onChanged: (val) {
               setState(() => _showIncome = val);
-              PrefsService.setModuleState('mod_income', val);
-              widget.onSettingsChanged(); // Оновлюємо головний екран
+              _toggleModule(ModuleType.income, val);
             },
           ),
           SwitchListTile(
@@ -62,8 +72,7 @@ class _SettingsModalState extends State<SettingsModal> {
             value: _showExpense,
             onChanged: (val) {
               setState(() => _showExpense = val);
-              PrefsService.setModuleState('mod_expense', val);
-              widget.onSettingsChanged();
+              _toggleModule(ModuleType.expense, val);
             },
           ),
           SwitchListTile(
@@ -72,8 +81,7 @@ class _SettingsModalState extends State<SettingsModal> {
             value: _showWarehouse,
             onChanged: (val) {
               setState(() => _showWarehouse = val);
-              PrefsService.setModuleState('mod_warehouse', val);
-              widget.onSettingsChanged();
+              _toggleModule(ModuleType.warehouse, val);
             },
           ),
           const Divider(height: 30),
@@ -85,7 +93,7 @@ class _SettingsModalState extends State<SettingsModal> {
               Navigator.pop(context);
               widget.googleSignIn.signOut();
             },
-          )
+          ),
         ],
       ),
     );

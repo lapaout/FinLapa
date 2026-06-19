@@ -3,8 +3,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../core/network_exception.dart';
 import '../../data/repositories/dashboard_repository.dart';
+import '../../data/repositories/sheet_records_repository.dart';
 import '../../models/dashboard.dart';
-import '../../services/sheets_api.dart';
 import '../../widgets/module_builder_modal.dart';
 import '../../widgets/data_entry_modal.dart';
 import '../history_screen.dart';
@@ -21,6 +21,7 @@ class IncomeTab extends StatefulWidget {
 
 class _IncomeTabState extends State<IncomeTab> {
   final DashboardRepository _dashboardRepository = DashboardRepository();
+  final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
 
   List<Dashboard> _dashboards = [];
   bool _isSending = false;
@@ -129,9 +130,9 @@ class _IncomeTabState extends State<IncomeTab> {
           setState(() => _isSending = true);
 
           try {
-            await SheetsApi.sendDynamicData(
+            await _recordsRepository.appendRecord(
               user: widget.user,
-              sheetName: title,
+              sheetTitle: title,
               columns: fields,
               values: valuesToSave,
             );

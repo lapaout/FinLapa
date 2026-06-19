@@ -1,0 +1,170 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../models/dashboard.dart';
+import '../../models/module_settings.dart';
+import '../../models/module_type.dart';
+import '../../models/sheet_data.dart';
+
+/// Локальне сховище даних поверх SharedPreferences.
+///
+/// Використовує стабільні ключі SharedPreferences для зворотної сумісності
+/// з попередніми версіями додатку.
+class LocalCacheDataSource {
+  static const String dashboardsCategory = 'income_cache';
+  static const String spreadsheetDocIdKey = 'spreadsheet_doc_id';
+
+  static String sheetRowsCategory(String sheetTitle) => 'cache_rows_$sheetTitle';
+
+  /// Ключ SharedPreferences для списку dashboard (legacy: dashboards_income_cache).
+  static String _dashboardsPrefsKey(String category) => 'dashboards_$category';
+
+  // --- Dashboards (App_Config cache) ---
+
+  Future<void> saveDashboards(
+    List<Dashboard> dashboards, {
+    String category = dashboardsCategory,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = jsonEncode(dashboards.map((d) => d.toMap()).toList());
+    await prefs.setString(_dashboardsPrefsKey(category), jsonString);
+  }
+
+  Future<List<Dashboard>> getDashboards({
+    String category = dashboardsCategory,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_dashboardsPrefsKey(category));
+    if (jsonString == null) return [];
+
+    final decodedList = jsonDecode(jsonString) as List<dynamic>;
+    return decodedList
+        .map((item) => Dashboard.fromMap(Map<String, dynamic>.from(item as Map)))
+        .toList();
+  }
+
+  Future<void> clearDashboards({
+    String category = dashboardsCategory,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_dashboardsPrefsKey(category));
+  }
+
+  // --- Sheet rows cache ---
+
+  Future<void> saveSheetRows(
+    String sheetTitle,
+    List<List<String>> rows,
+  ) async {
+    final cacheEntries = rows.map((row) => {'row': row}).toList();
+    await _saveJsonList(sheetRowsCategory(sheetTitle), cacheEntries);
+  }
+
+  Future<void> saveSheetData(String sheetTitle, SheetData data) async {
+    await saveSheetRows(sheetTitle, data.toSheetRows());
+  }
+
+  Future<List<List<String>>> getSheetRows(String sheetTitle) async {
+    final cachedMaps = await _getJsonList(sheetRowsCategory(sheetTitle));
+    return cachedMaps.map((item) {
+      final dynamicList = item['row'] as List<dynamic>? ?? [];
+      return dynamicList.map((e) => e.toString()).toList();
+    }).toList();
+  }
+
+  Future<SheetData> getSheetData(String sheetTitle) async {
+    final rows = await getSheetRows(sheetTitle);
+    return SheetData.fromCachedRows(rows);
+  }
+
+  Future<void> deleteSheetCache(String sheetTitle) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_dashboardsPrefsKey(sheetRowsCategory(sheetTitle)));
+  }
+
+  /// Переносить кеш записів при перейменуванні dashboard.
+  Future<void> migrateSheetCache(String oldTitle, String newTitle) async {
+    if (oldTitle == newTitle) return;
+
+    final rows = await getSheetRows(oldTitle);
+    if (rows.isEmpty) {
+      await deleteSheetCache(oldTitle);
+      return;
+    }
+
+    await saveSheetRows(newTitle, rows);
+    await deleteSheetCache(oldTitle);
+  }
+
+  // --- Module settings ---
+
+  Future<ModuleSettings> getModuleSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    return ModuleSettings(
+      income: prefs.getBool(ModuleType.income.prefsKey) ??
+          ModuleType.income.defaultEnabled,
+      expense: prefs.getBool(ModuleType.expense.prefsKey) ??
+          ModuleType.expense.defaultEnabled,
+      warehouse: prefs.getBool(ModuleType.warehouse.prefsKey) ??
+          ModuleType.warehouse.defaultEnabled,
+    );
+  }
+
+  Future<void> saveModuleSettings(ModuleSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(ModuleType.income.prefsKey, settings.income);
+    await prefs.setBool(ModuleType.expense.prefsKey, settings.expense);
+    await prefs.setBool(ModuleType.warehouse.prefsKey, settings.warehouse);
+  }
+
+  Future<void> setModuleEnabled(ModuleType type, bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(type.prefsKey, enabled);
+  }
+
+  Future<bool> isModuleEnabled(ModuleType type) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(type.prefsKey) ?? type.defaultEnabled;
+  }
+
+  // --- Spreadsheet doc ID (для майбутнього кешування в SheetsApi) ---
+
+  Future<String?> getSpreadsheetDocId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(spreadsheetDocIdKey);
+  }
+
+  Future<void> saveSpreadsheetDocId(String docId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(spreadsheetDocIdKey, docId);
+  }
+
+  Future<void> clearSpreadsheetDocId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(spreadsheetDocIdKey);
+  }
+
+  // --- Internal helpers ---
+
+  Future<void> _saveJsonList(
+    String category,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = jsonEncode(items);
+    await prefs.setString(_dashboardsPrefsKey(category), jsonString);
+  }
+
+  Future<List<Map<String, dynamic>>> _getJsonList(String category) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_dashboardsPrefsKey(category));
+    if (jsonString == null) return [];
+
+    final decodedList = jsonDecode(jsonString) as List<dynamic>;
+    return decodedList
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
+}

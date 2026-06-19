@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../services/sheets_api.dart';
+import '../data/repositories/sheet_records_repository.dart';
 import 'record_edit_modal.dart';
 
 class RecordsManager extends StatefulWidget {
@@ -8,9 +8,9 @@ class RecordsManager extends StatefulWidget {
   final String sheetName;
   final Color color;
   final List<String> headers;
-  final List<Map<String, dynamic>> records; 
+  final List<Map<String, dynamic>> records;
   final bool isOffline;
-  final Function(int rowIndex, List<String> updatedRow) onRecordUpdated; 
+  final Function(int rowIndex, List<String> updatedRow) onRecordUpdated;
 
   const RecordsManager({
     super.key,
@@ -28,6 +28,8 @@ class RecordsManager extends StatefulWidget {
 }
 
 class _RecordsManagerState extends State<RecordsManager> {
+  final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
+
   String _searchQuery = '';
   bool _isUpdating = false;
   
@@ -262,25 +264,27 @@ class _RecordsManagerState extends State<RecordsManager> {
                               setState(() => _isUpdating = true);
                               
                               try {
-                                await SheetsApi.updateRowData(
+                                await _recordsRepository.updateRecord(
                                   user: widget.user,
-                                  sheetName: widget.sheetName,
+                                  sheetTitle: widget.sheetName,
                                   rowIndex: rowIndex,
-                                  newValues: newValues,
+                                  values: newValues,
                                 );
-                                
-                                // МИТТЄВИЙ ЛОКАЛЬНИЙ УДАР: Оновлюємо дані всередині карти прямо зараз
+
                                 setState(() {
                                   item['row'] = newValues;
                                 });
 
                                 if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Запис оновлено!'), backgroundColor: Colors.green));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('✅ Запис оновлено!'),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
                                 }
-                                
-                                // Передаємо на головний екран для синхронізації кешу
+
                                 widget.onRecordUpdated(rowIndex, newValues);
-                                
                               } catch (e) {
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Помилка: $e'), backgroundColor: Colors.redAccent));

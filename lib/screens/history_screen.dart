@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../services/sheets_api.dart';
-import '../services/prefs_service.dart';
+
+import '../data/repositories/sheet_records_repository.dart';
 
 class HistoryScreen extends StatefulWidget {
   final GoogleSignInAccount user;
@@ -9,8 +9,8 @@ class HistoryScreen extends StatefulWidget {
   final Color dashboardColor;
 
   const HistoryScreen({
-    super.key, 
-    required this.user, 
+    super.key,
+    required this.user,
     required this.dashboardTitle,
     required this.dashboardColor,
   });
@@ -20,12 +20,14 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
+  final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
+
   bool _isLoading = true;
-  bool _isOffline = false; // Додаємо прапорець офлайну
+  bool _isOffline = false;
   List<List<String>> _allData = [];
   List<List<String>> _filteredData = [];
   List<String> _headers = [];
-  
+
   String _currentFilter = 'Всі';
   DateTimeRange? _customDateRange;
 
@@ -35,65 +37,49 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _fetchData();
   }
 
- Future<void> _fetchData() async {
-    try {
-      final data = await SheetsApi.readSheetData(user: widget.user, sheetName: widget.dashboardTitle);
-      
-      if (data.isNotEmpty && mounted) {
-        List<Map<String, dynamic>> rowsToCache = data.map((row) => {'row': row}).toList();
-        await PrefsService.saveCustomDashboards('cache_rows_${widget.dashboardTitle}', rowsToCache);
+  Future<void> _fetchData() async {
+    final result = await _recordsRepository.getRecords(
+      user: widget.user,
+      sheetTitle: widget.dashboardTitle,
+    );
 
-        setState(() {
-          _headers = data.first; 
-          _allData = data.sublist(1).reversed.toList(); 
-          _filteredData = List.from(_allData);
-          _isOffline = false;
-        });
-      }
-    } catch (e) {
-      final errorStr = e.toString();
-      
-      if (errorStr.contains('SocketException') || errorStr.contains('Failed host lookup') || errorStr.contains('ClientException')) {
-        if (!mounted) return;
-        setState(() => _isOffline = true);
+    if (!mounted) return;
 
-        final cachedData = await PrefsService.getCustomDashboards('cache_rows_${widget.dashboardTitle}');
-        if (cachedData.isNotEmpty && mounted) {
-          List<List<String>> parsedData = cachedData.map<List<String>>((item) {
-            final dynamicList = item['row'] as List<dynamic>? ?? [];
-            return dynamicList.map((e) => e.toString()).toList();
-          }).toList();
+    final headers = await _recordsRepository.getSheetHeaders(widget.dashboardTitle);
 
-          setState(() {
-            _headers = parsedData.isNotEmpty ? parsedData.first : [];
-            _allData = parsedData.length > 1 ? parsedData.sublist(1).reversed.toList() : [];
-            _filteredData = List.from(_allData);
-          });
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Офлайн: Показано записи з кешу'), backgroundColor: Colors.orange, duration: Duration(seconds: 2)));
-        } else if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Немає інтернету. Ця вкладка ще не кешувалася.'), backgroundColor: Colors.redAccent));
-        }
+    setState(() {
+      _isOffline = result.isOffline;
+      _headers = headers;
+      _allData = SheetRecordsRepository.recordsToDisplayRows(result.data);
+      _filteredData = List.from(_allData);
+      _isLoading = false;
+    });
+
+    if (result.isOffline) {
+      if (_allData.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Офлайн: Показано записи з кешу'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
       } else {
-        // ІНТЕРНЕТ Є! Таблиця порожня
-        if (!mounted) return;
-        setState(() {
-          _isOffline = false;
-          _headers = [];
-          _allData = [];
-          _filteredData = [];
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ Немає інтернету. Ця вкладка ще не кешувалася.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // Логіка фільтрації за датами
   void _applyFilter(String filter) {
     setState(() {
       _currentFilter = filter;
-      _customDateRange = null; 
-      
+      _customDateRange = null;
+
       if (filter == 'Всі') {
         _filteredData = List.from(_allData);
         return;
@@ -102,12 +88,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final now = DateTime.now();
       _filteredData = _allData.where((row) {
         if (row.isEmpty) return false;
-        final dateStr = row[0]; 
-        final rowDate = DateTime.tryParse("$dateStr:00"); 
+        final dateStr = row[0];
+        final rowDate = DateTime.tryParse("$dateStr:00");
         if (rowDate == null) return false;
 
         if (filter == 'Сьогодні') {
-          return rowDate.year == now.year && rowDate.month == now.month && rowDate.day == now.day;
+          return rowDate.year == now.year &&
+              rowDate.month == now.month &&
+              rowDate.day == now.day;
         } else if (filter == 'Тиждень') {
           return now.difference(rowDate).inDays <= 7;
         } else if (filter == 'Місяць') {
@@ -124,7 +112,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
       builder: (context, child) => Theme(
-        data: ThemeData.light().copyWith(colorScheme: ColorScheme.light(primary: widget.dashboardColor)),
+        data: ThemeData.light().copyWith(
+          colorScheme: ColorScheme.light(primary: widget.dashboardColor),
+        ),
         child: child!,
       ),
     );
@@ -137,8 +127,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
           if (row.isEmpty) return false;
           final rowDate = DateTime.tryParse("${row[0]}:00");
           if (rowDate == null) return false;
-          return rowDate.isAfter(picked.start.subtract(const Duration(days: 1))) && 
-                 rowDate.isBefore(picked.end.add(const Duration(days: 1)));
+          return rowDate.isAfter(picked.start.subtract(const Duration(days: 1))) &&
+              rowDate.isBefore(picked.end.add(const Duration(days: 1)));
         }).toList();
       });
     }
@@ -148,12 +138,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Історія: ${widget.dashboardTitle}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        title: Text(
+          'Історія: ${widget.dashboardTitle}',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: widget.dashboardColor.withOpacity(0.1),
       ),
       body: Column(
         children: [
-          // --- ВІЗУАЛЬНИЙ ІНДИКАТОР ОФЛАЙНУ ---
           if (_isOffline)
             Container(
               width: double.infinity,
@@ -165,19 +157,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
                   SizedBox(width: 8),
                   Text(
-                    "Офлайн режим (тільки читання)", 
-                    style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)
+                    "Офлайн режим (тільки читання)",
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
                 ],
               ),
             ),
 
-          // ПАНЕЛЬ ФІЛЬТРІВ
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -192,26 +193,46 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   _buildFilterChip('Місяць'),
                   const SizedBox(width: 8),
                   ActionChip(
-                    avatar: Icon(Icons.calendar_month, size: 18, color: _currentFilter == 'Період' ? Colors.white : widget.dashboardColor),
-                    label: Text(_customDateRange == null ? 'Період' : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - ${_customDateRange!.end.day}.${_customDateRange!.end.month}'),
-                    backgroundColor: _currentFilter == 'Період' ? widget.dashboardColor : Colors.white,
-                    labelStyle: TextStyle(color: _currentFilter == 'Період' ? Colors.white : Colors.black87),
+                    avatar: Icon(
+                      Icons.calendar_month,
+                      size: 18,
+                      color: _currentFilter == 'Період' ? Colors.white : widget.dashboardColor,
+                    ),
+                    label: Text(
+                      _customDateRange == null
+                          ? 'Період'
+                          : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - ${_customDateRange!.end.day}.${_customDateRange!.end.month}',
+                    ),
+                    backgroundColor:
+                        _currentFilter == 'Період' ? widget.dashboardColor : Colors.white,
+                    labelStyle: TextStyle(
+                      color: _currentFilter == 'Період' ? Colors.white : Colors.black87,
+                    ),
                     side: BorderSide(color: widget.dashboardColor.withOpacity(0.5)),
                     onPressed: _selectCustomDateRange,
-                  )
+                  ),
                 ],
               ),
             ),
           ),
 
-          // СПИСОК ЗАПИСІВ
           Expanded(
             child: _isLoading
                 ? Center(child: CircularProgressIndicator(color: widget.dashboardColor))
                 : _allData.isEmpty
-                    ? const Center(child: Text("Записів ще немає", style: TextStyle(color: Colors.grey, fontSize: 16)))
+                    ? const Center(
+                        child: Text(
+                          "Записів ще немає",
+                          style: TextStyle(color: Colors.grey, fontSize: 16),
+                        ),
+                      )
                     : _filteredData.isEmpty
-                        ? const Center(child: Text("За обраний період записів не знайдено", style: TextStyle(color: Colors.grey)))
+                        ? const Center(
+                            child: Text(
+                              "За обраний період записів не знайдено",
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
                         : ListView.builder(
                             padding: const EdgeInsets.all(16),
                             itemCount: _filteredData.length,
@@ -220,38 +241,68 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               return Card(
                                 elevation: 1,
                                 margin: const EdgeInsets.only(bottom: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                                 child: Padding(
                                   padding: const EdgeInsets.all(16),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      // Дата завжди перша
                                       Row(
                                         children: [
-                                          Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
+                                          Icon(
+                                            Icons.access_time,
+                                            size: 16,
+                                            color: Colors.grey.shade600,
+                                          ),
                                           const SizedBox(width: 6),
-                                          Text(row.isNotEmpty ? row[0] : 'Без дати', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                                          Text(
+                                            row.isNotEmpty ? row[0] : 'Без дати',
+                                            style: TextStyle(
+                                              color: Colors.grey.shade600,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                       const Divider(),
-                                      // Виводимо всі інші поля, які користувач створив у конструкторі
                                       ...List.generate(_headers.length - 1, (i) {
                                         final colIndex = i + 1;
-                                        final header = _headers.length > colIndex ? _headers[colIndex] : 'Поле';
-                                        final value = colIndex < row.length ? row[colIndex] : '-'; 
-                                        
+                                        final header =
+                                            _headers.length > colIndex ? _headers[colIndex] : 'Поле';
+                                        final value =
+                                            colIndex < row.length ? row[colIndex] : '-';
+
                                         return Padding(
                                           padding: const EdgeInsets.only(bottom: 4),
                                           child: Row(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              Expanded(flex: 2, child: Text("$header:", style: const TextStyle(color: Colors.black54, fontSize: 14))),
-                                              Expanded(flex: 3, child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
+                                              Expanded(
+                                                flex: 2,
+                                                child: Text(
+                                                  "$header:",
+                                                  style: const TextStyle(
+                                                    color: Colors.black54,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                              ),
+                                              Expanded(
+                                                flex: 3,
+                                                child: Text(
+                                                  value,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                              ),
                                             ],
                                           ),
                                         );
-                                      })
+                                      }),
                                     ],
                                   ),
                                 ),

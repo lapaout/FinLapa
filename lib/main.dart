@@ -17,17 +17,16 @@ class FinLapaApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent), useMaterial3: true),
       
-      // ДОДАНО: Налаштування мови для календаря та системи
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('uk', 'UA'), // Українська мова
-        Locale('en', 'US'), // Запасна англійська
+        Locale('uk', 'UA'),
+        Locale('en', 'US'),
       ],
-      locale: const Locale('uk', 'UA'), // Примусово робимо українську основною
+      locale: const Locale('uk', 'UA'),
 
       home: const AppRoot(),
     );
@@ -42,17 +41,36 @@ class AppRoot extends StatefulWidget {
 }
 
 class _AppRootState extends State<AppRoot> {
-  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/spreadsheets']);
+  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: [
+    'https://www.googleapis.com/auth/drive.file', 
+    'https://www.googleapis.com/auth/spreadsheets'
+  ]);
   GoogleSignInAccount? _user;
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    
     _googleSignIn.onCurrentUserChanged.listen((account) {
-      setState(() { _user = account; _isLoading = false; });
+      if (mounted) {
+        setState(() { 
+          _user = account; 
+          _isLoading = false; 
+        });
+      }
     });
-    _googleSignIn.signInSilently();
+
+    // Фікс: примусово вимикаємо завантаження, якщо тихий вхід не вдався
+    _googleSignIn.signInSilently().then((account) {
+      if (account == null && mounted) {
+        setState(() { _isLoading = false; });
+      }
+    }).catchError((error) {
+      if (mounted) {
+        setState(() { _isLoading = false; });
+      }
+    });
   }
 
   @override
