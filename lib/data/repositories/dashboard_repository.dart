@@ -114,4 +114,28 @@ class DashboardRepository {
       rethrow;
     }
   }
+
+  /// Повністю видаляє dashboard: аркуш Google Sheets, App_Config і локальний кеш.
+  Future<void> deleteDashboard({
+    required GoogleSignInAccount user,
+    required String title,
+  }) async {
+    try {
+      await SheetsApi.deleteSheet(user: user, sheetName: title);
+
+      final dashboardsResult = await getDashboards(user: user);
+      final dashboards = dashboardsResult.data
+          .where((dashboard) => dashboard.title != title)
+          .toList();
+
+      await saveDashboards(user: user, dashboards: dashboards);
+      await _cache.deleteSheetCache(title);
+
+      print('NETWORK OK [deleteDashboard]: deleted "$title"');
+    } catch (error, stackTrace) {
+      print('NETWORK ERROR [deleteDashboard]: $error');
+      print('NETWORK ERROR [deleteDashboard] stack: $stackTrace');
+      rethrow;
+    }
+  }
 }

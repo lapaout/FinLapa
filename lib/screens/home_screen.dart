@@ -3,7 +3,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../data/repositories/settings_repository.dart';
 import '../widgets/settings_modal.dart';
+import 'tabs/expense_tab.dart';
 import 'tabs/income_tab.dart';
+import 'tabs/warehouse_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   final GoogleSignInAccount user;
@@ -75,13 +77,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     if (_showExpense) {
-      activeTabs.add(const Center(child: Text("Витрати у розробці 🛠")));
+      activeTabs.add(ExpenseTab(user: widget.user));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.trending_down), label: 'Витрати'),
       );
     }
     if (_showWarehouse) {
-      activeTabs.add(const Center(child: Text("Склад у розробці 🛠")));
+      activeTabs.add(WarehouseTab(user: widget.user));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Склад'),
       );

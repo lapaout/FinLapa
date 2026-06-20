@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../../models/dashboard.dart';
+
 class ModuleBuilderModal extends StatefulWidget {
+  final String dashboardType;
   final Future<void> Function(String moduleName, List<String> fields, int iconCode, int colorValue) onSave;
 
-  const ModuleBuilderModal({super.key, required this.onSave});
+  const ModuleBuilderModal({
+    super.key,
+    required this.onSave,
+    this.dashboardType = Dashboard.typeIncome,
+  });
 
   @override
   State<ModuleBuilderModal> createState() => _ModuleBuilderModalState();
@@ -112,6 +119,19 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
     );
   }
 
+  List<String> _resolveFieldsToSave() {
+    if (widget.dashboardType == Dashboard.typeWarehouse) {
+      return Dashboard.buildWarehouseFields(_fields);
+    }
+    return List<String>.from(_fields);
+  }
+
+  bool get _canSave {
+    if (_moduleName.isEmpty) return false;
+    if (widget.dashboardType == Dashboard.typeWarehouse) return true;
+    return _fields.isNotEmpty;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -169,15 +189,52 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
               onChanged: (val) => _moduleName = val,
             ),
             const SizedBox(height: 20),
-            
-            const Text("Поля таблиці:", style: TextStyle(fontWeight: FontWeight.bold)),
-            Wrap(
-              spacing: 8,
-              children: _suggestedFields.map((f) => ActionChip(
-                label: Text('+ $f'),
-                onPressed: () { if (!_fields.contains(f)) setState(() => _fields.add(f)); },
-              )).toList(),
-            ),
+            if (widget.dashboardType == Dashboard.typeWarehouse) ...[
+              const Text(
+                'Обов\'язкові поля (додаються автоматично):',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: Dashboard.warehouseRequiredFields
+                    .map(
+                      (field) => Chip(
+                        label: Text(field, style: const TextStyle(fontSize: 12)),
+                        backgroundColor: Colors.grey.shade200,
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Додаткові поля:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+            ] else
+              const Text("Поля таблиці:", style: TextStyle(fontWeight: FontWeight.bold)),
+            if (widget.dashboardType != Dashboard.typeWarehouse)
+              Wrap(
+                spacing: 8,
+                children: _suggestedFields.map((f) => ActionChip(
+                  label: Text('+ $f'),
+                  onPressed: () { if (!_fields.contains(f)) setState(() => _fields.add(f)); },
+                )).toList(),
+              ),
+            if (widget.dashboardType == Dashboard.typeWarehouse)
+              Wrap(
+                spacing: 8,
+                children: _suggestedFields.map((f) => ActionChip(
+                  label: Text('+ $f'),
+                  onPressed: () {
+                    if (!_fields.contains(f) && !Dashboard.warehouseRequiredFields.contains(f)) {
+                      setState(() => _fields.add(f));
+                    }
+                  },
+                )).toList(),
+              ),
             
             Row(
               children: [
@@ -186,32 +243,40 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                   icon: const Icon(Icons.add_circle, color: Colors.blueAccent),
                   onPressed: () {
                     final text = _fieldController.text.trim();
-                    if (text.isNotEmpty && !_fields.contains(text)) {
-                      setState(() { _fields.add(text); _fieldController.clear(); });
+                    if (text.isEmpty || _fields.contains(text)) return;
+                    if (widget.dashboardType == Dashboard.typeWarehouse &&
+                        Dashboard.warehouseRequiredFields.contains(text)) {
+                      return;
                     }
+                    setState(() {
+                      _fields.add(text);
+                      _fieldController.clear();
+                    });
                   },
                 )
               ],
             ),
             
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 100,
-              child: ReorderableListView(
-                shrinkWrap: true,
-                children: _fields.map((f) => ListTile(
-                  key: ValueKey(f),
-                  title: Text(f, style: const TextStyle(fontSize: 14)),
-                  trailing: const Icon(Icons.drag_handle, size: 18),
-                )).toList(),
-                onReorder: (oldIdx, newIdx) {
-                  setState(() {
-                    if (newIdx > oldIdx) newIdx -= 1;
-                    _fields.insert(newIdx, _fields.removeAt(oldIdx));
-                  });
-                },
+            if (_fields.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 100,
+                child: ReorderableListView(
+                  shrinkWrap: true,
+                  children: _fields.map((f) => ListTile(
+                    key: ValueKey('${widget.dashboardType}-field-$f'),
+                    title: Text(f, style: const TextStyle(fontSize: 14)),
+                    trailing: const Icon(Icons.drag_handle, size: 18),
+                  )).toList(),
+                  onReorder: (oldIdx, newIdx) {
+                    setState(() {
+                      if (newIdx > oldIdx) newIdx -= 1;
+                      _fields.insert(newIdx, _fields.removeAt(oldIdx));
+                    });
+                  },
+                ),
               ),
-            ),
+            ],
             
             const SizedBox(height: 16),
             ElevatedButton(
@@ -222,15 +287,15 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
               ),
               // Якщо _isSaving == true, ставимо null (це вимикає кнопку)
               onPressed: _isSaving ? null : () async {
-                if (_moduleName.isNotEmpty && _fields.isNotEmpty) {
-                  // 1. Вмикаємо крутилку і блокуємо кнопку
-                  setState(() => _isSaving = true); 
-                  
-                  // 2. Чекаємо, поки дані відправляться в Google
-                  await widget.onSave(_moduleName, _fields, _selectedIcon.codePoint, _selectedColor.value);
-                  
-                  // Нам навіть не треба повертати _isSaving = false, 
-                  // бо після збереження вікно просто закривається!
+                if (_canSave) {
+                  setState(() => _isSaving = true);
+
+                  await widget.onSave(
+                    _moduleName,
+                    _resolveFieldsToSave(),
+                    _selectedIcon.codePoint,
+                    _selectedColor.value,
+                  );
                 }
               },
               // Змінюємо текст на крутилку, якщо йде збереження

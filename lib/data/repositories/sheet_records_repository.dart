@@ -128,6 +128,32 @@ class SheetRecordsRepository {
     }
   }
 
+  /// Фізично видаляє рядок з Google Sheets та оновлює локальний кеш.
+  Future<void> deleteRecord({
+    required GoogleSignInAccount user,
+    required String sheetTitle,
+    required int rowIndex,
+  }) async {
+    try {
+      await SheetsApi.deleteRow(
+        user: user,
+        sheetName: sheetTitle,
+        rowIndex: rowIndex,
+      );
+
+      final rows = await SheetsApi.readSheetData(
+        user: user,
+        sheetName: sheetTitle,
+      );
+      await _cache.saveSheetRows(sheetTitle, rows);
+      print('NETWORK OK [deleteRecord]: row $rowIndex in "$sheetTitle"');
+    } catch (error, stackTrace) {
+      print('NETWORK ERROR [SheetRecordsRepository]: $error');
+      print('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
+      rethrow;
+    }
+  }
+
   /// Оновлює один рядок у локальному кеші (для синхронізації UI після edit).
   Future<void> patchCachedRow({
     required String sheetTitle,

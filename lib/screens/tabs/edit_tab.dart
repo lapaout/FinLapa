@@ -34,10 +34,13 @@ class _EditTabState extends State<EditTab> {
   late String _title;
   late Color _color;
   late IconData _icon;
+  late bool _isWarehouse;
 
   @override
   void initState() {
     super.initState();
+    final dashboard = Dashboard.fromMap(widget.dashboard);
+    _isWarehouse = dashboard.type == Dashboard.typeWarehouse;
     _title = widget.dashboard['title'] ?? 'Без назви';
     _color = Color(widget.dashboard['color'] ?? Colors.green.value);
     _icon = IconData(
@@ -97,7 +100,8 @@ class _EditTabState extends State<EditTab> {
     required int newIcon,
     required int newColor,
   }) async {
-    final updatedDashboard = Dashboard(
+    final current = Dashboard.fromMap(widget.dashboard);
+    final updatedDashboard = current.copyWith(
       title: newName,
       fields: newFields,
       iconCode: newIcon,
@@ -226,7 +230,9 @@ class _EditTabState extends State<EditTab> {
                   headers: _headers,
                   records: _recentRecords,
                   isOffline: _isOffline,
+                  hideDateFeatures: _isWarehouse,
                   onRecordUpdated: _updateLocalRecord,
+                  onRecordDeleted: (_) => _fetchData(),
                 ),
               ],
             ),

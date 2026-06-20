@@ -12,6 +12,16 @@ class SheetRecord {
   /// Дата і час з першої колонки (формат запису FinLapa).
   String? get dateTime => values.isNotEmpty ? values.first : null;
 
+  /// Сума з другого стовпця, якщо перше поле даних — типова «Сума» доходу.
+  num? get amount {
+    if (values.length < 2) return null;
+    final normalized =
+        values[1].trim().replaceAll(',', '.').replaceAll(RegExp(r'[^\d.-]'), '');
+    final parsed = num.tryParse(normalized);
+    if (parsed == null || parsed <= 0) return null;
+    return parsed;
+  }
+
   factory SheetRecord.fromValues({
     required List<String> values,
     int? rowIndex,

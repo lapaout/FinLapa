@@ -96,7 +96,103 @@ class SheetsApi {
 
     final authHeaders = await _authHeaders(user);
     final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final targetSheetId = await _findSheetIdByTitle(
+      authHeaders: authHeaders,
+      docId: docId,
+      sheetTitle: oldTitle,
+    );
 
+    if (targetSheetId == null) return;
+
+    await _batchUpdate(
+      authHeaders: authHeaders,
+      docId: docId,
+      requests: [
+        {
+          'updateSheetProperties': {
+            'properties': {
+              'sheetId': targetSheetId,
+              'title': newTitle,
+            },
+            'fields': 'title',
+          },
+        },
+      ],
+      errorMessage: 'Помилка при перейменуванні аркуша',
+    );
+  }
+
+  /// Видаляє один рядок за 1-based індексом Google Sheets.
+  static Future<void> deleteRow({
+    required GoogleSignInAccount user,
+    required String sheetName,
+    required int rowIndex,
+  }) async {
+    final authHeaders = await _authHeaders(user);
+    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final sheetId = await _findSheetIdByTitle(
+      authHeaders: authHeaders,
+      docId: docId,
+      sheetTitle: sheetName,
+    );
+
+    if (sheetId == null) {
+      throw Exception('Аркуш "$sheetName" не знайдено');
+    }
+
+    await _batchUpdate(
+      authHeaders: authHeaders,
+      docId: docId,
+      requests: [
+        {
+          'deleteDimension': {
+            'range': {
+              'sheetId': sheetId,
+              'dimension': 'ROWS',
+              'startIndex': rowIndex - 1,
+              'endIndex': rowIndex,
+            },
+          },
+        },
+      ],
+      errorMessage: 'Не вдалося видалити рядок $rowIndex в "$sheetName"',
+    );
+  }
+
+  /// Повністю видаляє аркуш з Google-таблиці.
+  static Future<void> deleteSheet({
+    required GoogleSignInAccount user,
+    required String sheetName,
+  }) async {
+    final authHeaders = await _authHeaders(user);
+    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final sheetId = await _findSheetIdByTitle(
+      authHeaders: authHeaders,
+      docId: docId,
+      sheetTitle: sheetName,
+    );
+
+    if (sheetId == null) return;
+
+    await _batchUpdate(
+      authHeaders: authHeaders,
+      docId: docId,
+      requests: [
+        {
+          'deleteSheet': {
+            'sheetId': sheetId,
+          },
+        },
+      ],
+      errorMessage: 'Не вдалося видалити аркуш "$sheetName"',
+    );
+  }
+
+  static Future<int?> _findSheetIdByTitle({
+    required Map<String, String> authHeaders,
+    required String docId,
+    required String sheetTitle,
+  }) async {
     final metaUrl = Uri.parse(
       'https://sheets.googleapis.com/v4/spreadsheets/$docId',
     );
@@ -108,47 +204,39 @@ class SheetsApi {
       );
     }
 
-    final metaData = jsonDecode(metaRes.body);
-    int? targetSheetId;
+    final metaData = jsonDecode(metaRes.body) as Map<String, dynamic>;
+    final sheets = metaData['sheets'] as List<dynamic>? ?? [];
 
-    for (final sheet in metaData['sheets']) {
-      if (sheet['properties']['title'] == oldTitle) {
-        targetSheetId = sheet['properties']['sheetId'];
-        break;
+    for (final sheet in sheets) {
+      if (sheet['properties']['title'] == sheetTitle) {
+        return sheet['properties']['sheetId'] as int;
       }
     }
 
-    if (targetSheetId == null) return;
+    return null;
+  }
 
+  static Future<void> _batchUpdate({
+    required Map<String, String> authHeaders,
+    required String docId,
+    required List<Map<String, dynamic>> requests,
+    required String errorMessage,
+  }) async {
     final updateUrl = Uri.parse(
       'https://sheets.googleapis.com/v4/spreadsheets/$docId:batchUpdate',
     );
-    final updateBody = {
-      'requests': [
-        {
-          'updateSheetProperties': {
-            'properties': {
-              'sheetId': targetSheetId,
-              'title': newTitle,
-            },
-            'fields': 'title',
-          },
-        },
-      ],
-    };
-
     final updateRes = await http.post(
       updateUrl,
       headers: {
         ...authHeaders,
         'Content-Type': 'application/json',
       },
-      body: jsonEncode(updateBody),
+      body: jsonEncode({'requests': requests}),
     );
 
     if (updateRes.statusCode != 200) {
       throw Exception(
-        'Помилка при перейменуванні аркуша (${updateRes.statusCode}): ${updateRes.body}',
+        '$errorMessage (${updateRes.statusCode}): ${updateRes.body}',
       );
     }
   }

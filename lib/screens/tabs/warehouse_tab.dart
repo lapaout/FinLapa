@@ -11,16 +11,16 @@ import '../../widgets/data_entry_modal.dart';
 import '../history_screen.dart';
 import 'edit_tab.dart';
 
-class IncomeTab extends StatefulWidget {
+class WarehouseTab extends StatefulWidget {
   final GoogleSignInAccount user;
 
-  const IncomeTab({super.key, required this.user});
+  const WarehouseTab({super.key, required this.user});
 
   @override
-  State<IncomeTab> createState() => _IncomeTabState();
+  State<WarehouseTab> createState() => _WarehouseTabState();
 }
 
-class _IncomeTabState extends State<IncomeTab> {
+class _WarehouseTabState extends State<WarehouseTab> {
   final DashboardRepository _dashboardRepository = DashboardRepository();
   final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
 
@@ -29,29 +29,29 @@ class _IncomeTabState extends State<IncomeTab> {
   bool _isLoading = true;
   bool _isOffline = false;
 
-  List<Dashboard> get _activeDashboards => _dashboards
-      .where((dashboard) => dashboard.type == Dashboard.typeIncome && !dashboard.isArchived)
-      .toList();
-
-  List<Dashboard> get _archivedDashboards => _dashboards
-      .where((dashboard) => dashboard.type == Dashboard.typeIncome && dashboard.isArchived)
-      .toList();
+  List<Dashboard> get _incomeDashboards =>
+      _dashboards.where((dashboard) => dashboard.type == Dashboard.typeIncome).toList();
 
   List<Dashboard> get _expenseDashboards =>
       _dashboards.where((dashboard) => dashboard.type == Dashboard.typeExpense).toList();
 
-  List<Dashboard> get _warehouseDashboards =>
-      _dashboards.where((dashboard) => dashboard.type == Dashboard.typeWarehouse).toList();
+  List<Dashboard> get _activeDashboards => _dashboards
+      .where((dashboard) => dashboard.type == Dashboard.typeWarehouse && !dashboard.isArchived)
+      .toList();
 
-  List<Dashboard> _mergeIncomeDashboards({
-    required List<Dashboard> activeIncome,
-    required List<Dashboard> archivedIncome,
+  List<Dashboard> get _archivedDashboards => _dashboards
+      .where((dashboard) => dashboard.type == Dashboard.typeWarehouse && dashboard.isArchived)
+      .toList();
+
+  List<Dashboard> _mergeWarehouseDashboards({
+    required List<Dashboard> activeWarehouse,
+    required List<Dashboard> archivedWarehouse,
   }) {
     return [
-      ...activeIncome,
-      ...archivedIncome,
+      ..._incomeDashboards,
       ..._expenseDashboards,
-      ..._warehouseDashboards,
+      ...activeWarehouse,
+      ...archivedWarehouse,
     ];
   }
 
@@ -108,14 +108,14 @@ class _IncomeTabState extends State<IncomeTab> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => ModuleBuilderModal(
-        dashboardType: Dashboard.typeIncome,
+        dashboardType: Dashboard.typeWarehouse,
         onSave: (moduleName, fields, iconCode, colorValue) async {
           final newDashboard = Dashboard(
             title: moduleName,
             fields: fields,
             iconCode: iconCode,
             colorValue: colorValue,
-            type: Dashboard.typeIncome,
+            type: Dashboard.typeWarehouse,
           );
           final updatedDashboards = [..._dashboards, newDashboard];
 
@@ -165,50 +165,16 @@ class _IncomeTabState extends State<IncomeTab> {
       ),
       builder: (context) => DashboardManageModal(
         dashboard: dashboard,
-        onWarehouseLinkedChanged: (isWarehouseLinked, fields) =>
-            _updateWarehouseLinked(dashboard, isWarehouseLinked, fields),
         onArchive: () => _archiveDashboard(dashboard),
         onDeleteForever: () => _confirmDeleteDashboard(dashboard),
       ),
     );
   }
 
-  Future<void> _updateWarehouseLinked(
-    Dashboard dashboard,
-    bool isWarehouseLinked,
-    List<String> fields,
-  ) async {
-    final updated = _dashboards
-        .map(
-          (item) => item.title == dashboard.title && item.type == Dashboard.typeIncome
-              ? item.copyWith(
-                  isWarehouseLinked: isWarehouseLinked,
-                  fields: fields,
-                )
-              : item,
-        )
-        .toList();
-
-    try {
-      await _saveDashboards(updated);
-    } catch (error) {
-      if (mounted && isNetworkError(error)) {
-        setState(() => _isOffline = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Немає зв\'язку з інтернетом.'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-      rethrow;
-    }
-  }
-
   Future<void> _archiveDashboard(Dashboard dashboard) async {
     final updated = _dashboards
         .map(
-          (item) => item.title == dashboard.title && item.type == Dashboard.typeIncome
+          (item) => item.title == dashboard.title && item.type == Dashboard.typeWarehouse
               ? item.copyWith(isArchived: true)
               : item,
         )
@@ -303,9 +269,9 @@ class _IncomeTabState extends State<IncomeTab> {
     final item = active.removeAt(oldIndex);
     active.insert(newIndex, item);
 
-    final updated = _mergeIncomeDashboards(
-      activeIncome: active,
-      archivedIncome: _archivedDashboards,
+    final updated = _mergeWarehouseDashboards(
+      activeWarehouse: active,
+      archivedWarehouse: _archivedDashboards,
     );
 
     setState(() => _dashboards = updated);
@@ -334,7 +300,7 @@ class _IncomeTabState extends State<IncomeTab> {
   Future<void> _restoreDashboard(Dashboard dashboard) async {
     final updated = _dashboards
         .map(
-          (item) => item.title == dashboard.title && item.type == Dashboard.typeIncome
+          (item) => item.title == dashboard.title && item.type == Dashboard.typeWarehouse
               ? item.copyWith(isArchived: false)
               : item,
         )
@@ -377,29 +343,16 @@ class _IncomeTabState extends State<IncomeTab> {
         title: title,
         fields: fields,
         isSending: _isSending,
-        isWarehouseLinked: dashboard.isWarehouseLinked,
-        user: widget.user,
-        dashboardRepository: _dashboardRepository,
-        recordsRepository: _recordsRepository,
         onSave: (valuesToSave, {extraFields}) async {
           Navigator.pop(context);
           setState(() => _isSending = true);
-
-          final columns = List<String>.from(fields);
-          final values = List<String>.from(valuesToSave);
-          if (extraFields != null) {
-            extraFields.forEach((key, value) {
-              columns.add(key);
-              values.add(value);
-            });
-          }
 
           try {
             await _recordsRepository.appendRecord(
               user: widget.user,
               sheetTitle: title,
-              columns: columns,
-              values: values,
+              columns: fields,
+              values: valuesToSave,
             );
 
             setState(() => _isOffline = false);
@@ -504,15 +457,6 @@ class _IncomeTabState extends State<IncomeTab> {
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
                   ),
                 ),
-                if (dashboard.isWarehouseLinked)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Icon(
-                      Icons.inventory_2_outlined,
-                      size: 20,
-                      color: Colors.teal.withOpacity(0.75),
-                    ),
-                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -526,7 +470,7 @@ class _IncomeTabState extends State<IncomeTab> {
                   colorData,
                   () => _openDataEntryForm(dashboard),
                 ),
-                _buildActionButton(Icons.history, "Історія", Colors.blueGrey, () {
+                _buildActionButton(Icons.inventory_2, "Докладно", Colors.blueGrey, () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -647,7 +591,7 @@ class _IncomeTabState extends State<IncomeTab> {
                 const Padding(
                   padding: EdgeInsets.only(bottom: 24.0),
                   child: Text(
-                    "Немає джерел доходу.\nНатисніть 'Створити', щоб додати своє.",
+                    "Немає складських дашбордів.\nНатисніть 'Створити', щоб додати свій.",
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey, fontSize: 16),
                   ),
@@ -664,7 +608,7 @@ class _IncomeTabState extends State<IncomeTab> {
               itemBuilder: (context, index) {
                 final dashboard = _activeDashboards[index];
                 return ReorderableDelayedDragStartListener(
-                  key: ValueKey('income-active-${dashboard.title}'),
+                  key: ValueKey('warehouse-active-${dashboard.title}'),
                   index: index,
                   enabled: !_isOffline,
                   child: _buildActiveDashboardCard(dashboard),
@@ -725,7 +669,7 @@ class _IncomeTabState extends State<IncomeTab> {
                   children: _archivedDashboards
                       .map(
                         (dashboard) => KeyedSubtree(
-                          key: ValueKey('income-archived-${dashboard.title}'),
+                          key: ValueKey('warehouse-archived-${dashboard.title}'),
                           child: _buildArchivedDashboardCard(dashboard),
                         ),
                       )

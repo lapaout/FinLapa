@@ -11,6 +11,8 @@ class RecordsManager extends StatefulWidget {
   final List<Map<String, dynamic>> records;
   final bool isOffline;
   final Function(int rowIndex, List<String> updatedRow) onRecordUpdated;
+  final Function(int rowIndex)? onRecordDeleted;
+  final bool hideDateFeatures;
 
   const RecordsManager({
     super.key,
@@ -21,6 +23,8 @@ class RecordsManager extends StatefulWidget {
     required this.records,
     required this.isOffline,
     required this.onRecordUpdated,
+    this.onRecordDeleted,
+    this.hideDateFeatures = false,
   });
 
   @override
@@ -93,7 +97,7 @@ class _RecordsManagerState extends State<RecordsManager> {
       if (!matchesText) return false;
 
       // 2. Фільтрація за обраною датою
-      if (_dateFilter == 'Всі') return true;
+      if (widget.hideDateFeatures || _dateFilter == 'Всі') return true;
       if (rowData.isEmpty) return false;
 
       final dateStr = rowData[0]; 
@@ -122,29 +126,30 @@ class _RecordsManagerState extends State<RecordsManager> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // --- ПАНЕЛЬ КЛІК КЛУБІВ (ФІЛЬТРИ ДАТ) ---
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              _buildFilterChip('Всі'),
-              const SizedBox(width: 6),
-              _buildFilterChip('Сьогодні'),
-              const SizedBox(width: 6),
-              _buildFilterChip('Місяць'),
-              const SizedBox(width: 6),
-              ActionChip(
-                avatar: Icon(Icons.calendar_month, size: 16, color: _dateFilter == 'Період' ? Colors.white : widget.color),
-                label: Text(_customDateRange == null ? 'Період' : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - ${_customDateRange!.end.day}.${_customDateRange!.end.month}'),
-                backgroundColor: _dateFilter == 'Період' ? widget.color : Colors.white,
-                labelStyle: TextStyle(color: _dateFilter == 'Період' ? Colors.white : Colors.black87, fontSize: 13),
-                side: BorderSide(color: widget.color.withOpacity(0.4)),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-                onPressed: _selectCustomDateRange,
-              ),
-            ],
+        if (!widget.hideDateFeatures)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                _buildFilterChip('Всі'),
+                const SizedBox(width: 6),
+                _buildFilterChip('Сьогодні'),
+                const SizedBox(width: 6),
+                _buildFilterChip('Місяць'),
+                const SizedBox(width: 6),
+                ActionChip(
+                  avatar: Icon(Icons.calendar_month, size: 16, color: _dateFilter == 'Період' ? Colors.white : widget.color),
+                  label: Text(_customDateRange == null ? 'Період' : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - ${_customDateRange!.end.day}.${_customDateRange!.end.month}'),
+                  backgroundColor: _dateFilter == 'Період' ? widget.color : Colors.white,
+                  labelStyle: TextStyle(color: _dateFilter == 'Період' ? Colors.white : Colors.black87, fontSize: 13),
+                  side: BorderSide(color: widget.color.withOpacity(0.4)),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                  onPressed: _selectCustomDateRange,
+                ),
+              ],
+            ),
           ),
-        ),
 
         // --- ПОЛЕ ПОШУКУ ---
         TextField(
@@ -181,16 +186,24 @@ class _RecordsManagerState extends State<RecordsManager> {
             final dateStr = row.isNotEmpty ? row[0] : 'Без дати';
 
             List<Widget> fieldWidgets = [];
-            for (int i = 1; i <= 3; i++) {
+            final headerIndexes = widget.hideDateFeatures
+                ? List.generate(widget.headers.length - 1, (i) => i + 1)
+                : [1, 2, 3].where((i) => i < widget.headers.length).toList();
+
+            for (final i in headerIndexes) {
               if (i < widget.headers.length && i < row.length) {
                 final headerName = widget.headers[i];
+                if (headerName.startsWith('_')) continue;
+
                 String value = row[i];
                 final headerLower = headerName.toLowerCase();
 
-                final isMoney = headerLower.contains('сум') || headerLower.contains('цін') || headerLower.contains('варт');
-                                
+                final isMoney = headerLower.contains('сум') ||
+                    headerLower.contains('цін') ||
+                    headerLower.contains('варт');
+
                 if (isMoney && value.isNotEmpty && value != '-') {
-                  value = '$value ₴'; 
+                  value = '$value ₴';
                 }
 
                 fieldWidgets.add(
@@ -201,14 +214,14 @@ class _RecordsManagerState extends State<RecordsManager> {
                       children: [
                         Expanded(flex: 2, child: Text("$headerName:", style: const TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w500))),
                         Expanded(
-                          flex: 3, 
+                          flex: 3,
                           child: Text(
-                            value, 
+                            value,
                             style: TextStyle(
-                              fontWeight: i == 1 || isMoney ? FontWeight.bold : FontWeight.w600, 
+                              fontWeight: i == 1 || isMoney ? FontWeight.bold : FontWeight.w600,
                               fontSize: i == 1 || isMoney ? 16 : 15,
-                              color: isMoney ? Colors.green.shade700 : Colors.black87
-                            )
+                              color: isMoney ? Colors.green.shade700 : Colors.black87,
+                            ),
                           ),
                         ),
                       ],
@@ -233,14 +246,16 @@ class _RecordsManagerState extends State<RecordsManager> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           ...fieldWidgets,
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(Icons.access_time, size: 12, color: Colors.grey.shade400),
-                              const SizedBox(width: 4),
-                              Text(dateStr, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
-                            ],
-                          ),
+                          if (!widget.hideDateFeatures) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(Icons.access_time, size: 12, color: Colors.grey.shade400),
+                                const SizedBox(width: 4),
+                                Text(dateStr, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -262,7 +277,7 @@ class _RecordsManagerState extends State<RecordsManager> {
                             onSave: (newValues) async {
                               Navigator.pop(context);
                               setState(() => _isUpdating = true);
-                              
+
                               try {
                                 await _recordsRepository.updateRecord(
                                   user: widget.user,
@@ -287,8 +302,46 @@ class _RecordsManagerState extends State<RecordsManager> {
                                 widget.onRecordUpdated(rowIndex, newValues);
                               } catch (e) {
                                 if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Помилка: $e'), backgroundColor: Colors.redAccent));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('❌ Помилка: $e'),
+                                      backgroundColor: Colors.redAccent,
+                                    ),
+                                  );
                                 }
+                              } finally {
+                                if (mounted) setState(() => _isUpdating = false);
+                              }
+                            },
+                            onDelete: () async {
+                              setState(() => _isUpdating = true);
+                              try {
+                                await _recordsRepository.deleteRecord(
+                                  user: widget.user,
+                                  sheetTitle: widget.sheetName,
+                                  rowIndex: rowIndex,
+                                );
+
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('✅ Запис видалено'),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                }
+
+                                widget.onRecordDeleted?.call(rowIndex);
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('❌ Помилка: $e'),
+                                      backgroundColor: Colors.redAccent,
+                                    ),
+                                  );
+                                }
+                                rethrow;
                               } finally {
                                 if (mounted) setState(() => _isUpdating = false);
                               }
