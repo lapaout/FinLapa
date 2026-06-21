@@ -109,7 +109,7 @@ class _WarehouseTabState extends State<WarehouseTab> {
       ),
       builder: (context) => ModuleBuilderModal(
         dashboardType: Dashboard.typeWarehouse,
-        onSave: (moduleName, fields, iconCode, colorValue) async {
+        onSave: (moduleName, fields, iconCode, colorValue, _) async {
           final newDashboard = Dashboard(
             title: moduleName,
             fields: fields,

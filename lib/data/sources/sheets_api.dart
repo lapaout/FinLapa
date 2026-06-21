@@ -4,21 +4,24 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/dashboard.dart';
+import '../../models/finlapa_spreadsheet.dart';
+import 'google_api_auth.dart';
 import 'local_cache_data_source.dart';
 
 /// HTTP-клієнт для Google Sheets / Drive. Без логіки кешу та парсингу доменних моделей.
 class SheetsApi {
   static const String appConfigSheetName = 'App_Config';
-  static const String spreadsheetName = 'FinLapa_Data';
+  static const String finLapaFolderName = 'FinLapa';
 
   static final LocalCacheDataSource _localCache = LocalCacheDataSource();
+  static String? _cachedFinLapaFolderId;
 
   static Future<List<List<String>>> readSheetData({
     required GoogleSignInAccount user,
     required String sheetName,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
 
     final url = _valuesUrl(docId, sheetName);
     final response = await http.get(url, headers: authHeaders);
@@ -62,7 +65,7 @@ class SheetsApi {
     List<String>? createHeaders,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
 
     var success = await _overwriteSheetData(
       authHeaders,
@@ -95,7 +98,7 @@ class SheetsApi {
     if (oldTitle == newTitle) return;
 
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
     final targetSheetId = await _findSheetIdByTitle(
       authHeaders: authHeaders,
       docId: docId,
@@ -129,7 +132,7 @@ class SheetsApi {
     required int rowIndex,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
     final sheetId = await _findSheetIdByTitle(
       authHeaders: authHeaders,
       docId: docId,
@@ -165,7 +168,7 @@ class SheetsApi {
     required String sheetName,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
     final sheetId = await _findSheetIdByTitle(
       authHeaders: authHeaders,
       docId: docId,
@@ -249,7 +252,7 @@ class SheetsApi {
     required double amount,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
 
     final row = [
       DateTime.now().toString().substring(0, 16),
@@ -281,7 +284,7 @@ class SheetsApi {
     required List<dynamic> values,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
 
     final headers = ['Дата і час', ...columns];
     final row = [DateTime.now().toString().substring(0, 16), ...values];
@@ -304,7 +307,7 @@ class SheetsApi {
     required List<dynamic> newValues,
   }) async {
     final authHeaders = await _authHeaders(user);
-    final docId = await _getOrCreateSpreadsheet(authHeaders);
+    final docId = await _requireActiveSpreadsheetId();
 
     final range = _sheetRange(sheetName, 'A$rowIndex');
     final url = Uri.parse(
@@ -330,81 +333,247 @@ class SheetsApi {
   static Future<Map<String, String>> _authHeaders(
     GoogleSignInAccount user,
   ) async {
-    final headers = await user.authHeaders;
-
-    final authorization = headers['Authorization'];
-    if (authorization == null || authorization.isEmpty) {
-      throw Exception(
-        'Authorization token is missing. Sign out and sign in again.',
-      );
-    }
-
-    return Map<String, String>.from(headers);
+    return GoogleApiAuth.buildHeaders(user);
   }
 
-  static Future<String> _getOrCreateSpreadsheet(
+  /// Знаходить або створює папку FinLapa в корені Google Drive.
+  static Future<String> ensureFinLapaFolder(
     Map<String, String> authHeaders,
   ) async {
-    final cachedDocId = await _localCache.getSpreadsheetDocId();
-    if (cachedDocId != null && cachedDocId.isNotEmpty) {
-      return cachedDocId;
+    if (_cachedFinLapaFolderId != null && _cachedFinLapaFolderId!.isNotEmpty) {
+      return _cachedFinLapaFolderId!;
     }
 
-    final existingDocId = await _findSpreadsheetOnDrive(authHeaders);
-    if (existingDocId != null) {
-      await _localCache.saveSpreadsheetDocId(existingDocId);
-      return existingDocId;
-    }
-
-    final newDocId = await _createSpreadsheet(authHeaders);
-    await _localCache.saveSpreadsheetDocId(newDocId);
-    return newDocId;
-  }
-
-  /// Шукає існуючий файл FinLapa_Data на Google Drive (не в кошику).
-  static Future<String?> _findSpreadsheetOnDrive(
-    Map<String, String> authHeaders,
-  ) async {
     final query =
-        "name = '$spreadsheetName' and trashed = false and mimeType = 'application/vnd.google-apps.spreadsheet'";
+        "name = '$finLapaFolderName' and mimeType = 'application/vnd.google-apps.folder' "
+        "and trashed = false and 'root' in parents";
     final searchUrl = Uri.https(
       'www.googleapis.com',
       '/drive/v3/files',
       {
         'q': query,
         'fields': 'files(id,name)',
-        'orderBy': 'createdTime',
-        'pageSize': '10',
+        'pageSize': '1',
       },
     );
 
     final response = await http.get(searchUrl, headers: authHeaders);
-
     if (response.statusCode != 200) {
       throw Exception(
-        'Drive search failed (${response.statusCode}): ${response.body}',
+        'Пошук папки FinLapa не вдався (${response.statusCode}): ${response.body}',
       );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final files = body['files'] as List<dynamic>?;
-    if (files == null || files.isEmpty) {
-      return null;
+    final files = body['files'] as List<dynamic>? ?? [];
+    if (files.isNotEmpty) {
+      _cachedFinLapaFolderId = files.first['id'] as String;
+      return _cachedFinLapaFolderId!;
     }
 
-    if (files.length > 1) {
-      print(
-        'SheetsApi: знайдено ${files.length} файлів "$spreadsheetName", '
-        'використовуємо найстаріший (${files[0]['id']})',
+    final createUrl = Uri.parse('https://www.googleapis.com/drive/v3/files');
+    final createResponse = await http.post(
+      createUrl,
+      headers: {
+        ...authHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'name': finLapaFolderName,
+        'mimeType': 'application/vnd.google-apps.folder',
+      }),
+    );
+
+    if (createResponse.statusCode != 200) {
+      throw Exception(
+        'Створення папки FinLapa не вдалося (${createResponse.statusCode}): ${createResponse.body}',
       );
     }
 
-    return files[0]['id'] as String;
+    final createBody = jsonDecode(createResponse.body) as Map<String, dynamic>;
+    final folderId = createBody['id'] as String?;
+    if (folderId == null || folderId.isEmpty) {
+      throw Exception('Drive API не повернув id нової папки FinLapa');
+    }
+
+    _cachedFinLapaFolderId = folderId;
+    return folderId;
   }
 
-  /// Створює нову Google-таблицю FinLapa_Data.
-  static Future<String> _createSpreadsheet(
+  /// Усі Google Sheets всередині папки FinLapa.
+  static Future<List<FinLapaSpreadsheet>> listSpreadsheetsInFinLapaFolder({
+    required GoogleSignInAccount user,
+  }) async {
+    final authHeaders = await _authHeaders(user);
+    final folderId = await ensureFinLapaFolder(authHeaders);
+
+    final query =
+        "'$folderId' in parents and trashed = false "
+        "and mimeType = 'application/vnd.google-apps.spreadsheet'";
+    final searchUrl = Uri.https(
+      'www.googleapis.com',
+      '/drive/v3/files',
+      {
+        'q': query,
+        'fields': 'files(id,name,createdTime)',
+        'orderBy': 'name',
+        'pageSize': '100',
+      },
+    );
+
+    final response = await http.get(searchUrl, headers: authHeaders);
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Пошук таблиць у FinLapa не вдався (${response.statusCode}): ${response.body}',
+      );
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final files = body['files'] as List<dynamic>? ?? [];
+
+    return files
+        .map(
+          (file) => FinLapaSpreadsheet(
+            id: file['id'] as String,
+            name: file['name'] as String? ?? 'Без назви',
+          ),
+        )
+        .toList();
+  }
+
+  /// Створює нову таблицю в папці FinLapa та ініціалізує App_Config.
+  static Future<FinLapaSpreadsheet> createSpreadsheetInFinLapaFolder({
+    required GoogleSignInAccount user,
+    required String title,
+  }) async {
+    final trimmedTitle = title.trim();
+    if (trimmedTitle.isEmpty) {
+      throw Exception('Назва таблиці не може бути порожньою');
+    }
+
+    final authHeaders = await _authHeaders(user);
+    final folderId = await ensureFinLapaFolder(authHeaders);
+    final docId = await _createSpreadsheetFile(authHeaders, trimmedTitle);
+
+    await _moveFileToFolder(
+      authHeaders: authHeaders,
+      fileId: docId,
+      folderId: folderId,
+    );
+
+    await _localCache.setActiveWorkspace(id: docId, name: trimmedTitle);
+    await initializeAppConfig(user: user);
+
+    return FinLapaSpreadsheet(id: docId, name: trimmedTitle);
+  }
+
+  /// Базова структура App_Config для нової таблиці.
+  static Future<void> initializeAppConfig({
+    required GoogleSignInAccount user,
+  }) async {
+    await writeAppConfig(user: user, dashboards: const []);
+  }
+
+  /// Видаляє таблицю на Google Drive (ID береться зі списку FinLapa).
+  static Future<void> deleteSpreadsheetInFinLapaFolder({
+    required GoogleSignInAccount user,
+    required String spreadsheetId,
+  }) async {
+    final authHeaders = await _authHeaders(user);
+    final url = Uri.https(
+      'www.googleapis.com',
+      '/drive/v3/files/$spreadsheetId',
+    );
+    final response = await http.delete(url, headers: authHeaders);
+
+    if (response.statusCode != 204 && response.statusCode != 200) {
+      throw Exception(
+        'Не вдалося видалити таблицю (${response.statusCode}): ${response.body}. '
+        'Переконайтеся, що додаток має доступ drive.file і увійдіть знову.',
+      );
+    }
+  }
+
+  /// Перевіряє, що файл існує і належить папці FinLapa.
+  static Future<bool> isSpreadsheetInFinLapaFolder({
+    required GoogleSignInAccount user,
+    required String spreadsheetId,
+  }) async {
+    final authHeaders = await _authHeaders(user);
+    final folderId = await ensureFinLapaFolder(authHeaders);
+
+    final query =
+        "id = '$spreadsheetId' and '$folderId' in parents and trashed = false "
+        "and mimeType = 'application/vnd.google-apps.spreadsheet'";
+    final searchUrl = Uri.https(
+      'www.googleapis.com',
+      '/drive/v3/files',
+      {
+        'q': query,
+        'fields': 'files(id,name)',
+        'pageSize': '1',
+      },
+    );
+
+    final response = await http.get(searchUrl, headers: authHeaders);
+    if (response.statusCode != 200) {
+      return false;
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final files = body['files'] as List<dynamic>? ?? [];
+    return files.isNotEmpty;
+  }
+
+  /// Отримує назву таблиці лише якщо вона в папці FinLapa.
+  static Future<String?> getSpreadsheetName({
+    required GoogleSignInAccount user,
+    required String spreadsheetId,
+  }) async {
+    final authHeaders = await _authHeaders(user);
+    final folderId = await ensureFinLapaFolder(authHeaders);
+
+    final query =
+        "id = '$spreadsheetId' and '$folderId' in parents and trashed = false "
+        "and mimeType = 'application/vnd.google-apps.spreadsheet'";
+    final searchUrl = Uri.https(
+      'www.googleapis.com',
+      '/drive/v3/files',
+      {
+        'q': query,
+        'fields': 'files(name)',
+        'pageSize': '1',
+      },
+    );
+
+    final response = await http.get(searchUrl, headers: authHeaders);
+    if (response.statusCode != 200) {
+      return null;
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final files = body['files'] as List<dynamic>? ?? [];
+    if (files.isEmpty) {
+      return null;
+    }
+
+    return files.first['name'] as String?;
+  }
+
+  static Future<String> _requireActiveSpreadsheetId() async {
+    final activeId = await _localCache.getActiveSpreadsheetId();
+    if (activeId != null && activeId.isNotEmpty) {
+      return activeId;
+    }
+
+    throw Exception(
+      'Активна таблиця не обрана. Оберіть або створіть таблицю у FinLapa.',
+    );
+  }
+
+  static Future<String> _createSpreadsheetFile(
     Map<String, String> authHeaders,
+    String title,
   ) async {
     final createResponse = await http.post(
       Uri.parse('https://sheets.googleapis.com/v4/spreadsheets'),
@@ -412,7 +581,7 @@ class SheetsApi {
         ...authHeaders,
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({'properties': {'title': spreadsheetName}}),
+      body: jsonEncode({'properties': {'title': title}}),
     );
 
     if (createResponse.statusCode != 200) {
@@ -430,6 +599,25 @@ class SheetsApi {
     }
 
     return docId;
+  }
+
+  static Future<void> _moveFileToFolder({
+    required Map<String, String> authHeaders,
+    required String fileId,
+    required String folderId,
+  }) async {
+    final url = Uri.parse(
+      'https://www.googleapis.com/drive/v3/files/$fileId'
+      '?addParents=$folderId&fields=id,parents',
+    );
+    final response = await http.patch(url, headers: authHeaders);
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Не вдалося перемістити таблицю в папку FinLapa '
+        '(${response.statusCode}): ${response.body}',
+      );
+    }
   }
 
   static Uri _valuesUrl(String docId, String range) {

@@ -109,7 +109,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
       ),
       builder: (context) => ModuleBuilderModal(
         dashboardType: Dashboard.typeExpense,
-        onSave: (moduleName, fields, iconCode, colorValue) async {
+        onSave: (moduleName, fields, iconCode, colorValue, _) async {
           final newDashboard = Dashboard(
             title: moduleName,
             fields: fields,

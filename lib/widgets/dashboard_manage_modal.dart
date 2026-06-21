@@ -2,82 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../models/dashboard.dart';
 
-class DashboardManageModal extends StatefulWidget {
+class DashboardManageModal extends StatelessWidget {
   final Dashboard dashboard;
   final VoidCallback onArchive;
   final VoidCallback onDeleteForever;
-  final Future<void> Function(bool isWarehouseLinked, List<String> fields)?
-      onWarehouseLinkedChanged;
 
   const DashboardManageModal({
     super.key,
     required this.dashboard,
     required this.onArchive,
     required this.onDeleteForever,
-    this.onWarehouseLinkedChanged,
   });
 
   @override
-  State<DashboardManageModal> createState() => _DashboardManageModalState();
-}
-
-class _DashboardManageModalState extends State<DashboardManageModal> {
-  late bool _isWarehouseLinked;
-  bool _isSavingWarehouseLink = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _isWarehouseLinked = widget.dashboard.isWarehouseLinked;
-  }
-
-  bool _hasMoneyField(List<String> fields) {
-    const moneyKeywords = ['сум', 'amount', 'цін', 'варт'];
-    return fields.any((field) {
-      final lower = field.toLowerCase();
-      return moneyKeywords.any((keyword) => lower.contains(keyword));
-    });
-  }
-
-  List<String> _ensureMoneyField(List<String> fields) {
-    if (_hasMoneyField(fields)) {
-      return List<String>.from(fields);
-    }
-    return ['Сума', ...fields];
-  }
-
-  Future<void> _onWarehouseLinkedChanged(bool value) async {
-    if (widget.onWarehouseLinkedChanged == null || _isSavingWarehouseLink) return;
-
-    var fields = List<String>.from(widget.dashboard.fields);
-    if (value) {
-      fields = _ensureMoneyField(fields);
-    }
-
-    setState(() {
-      _isWarehouseLinked = value;
-      _isSavingWarehouseLink = true;
-    });
-
-    try {
-      await widget.onWarehouseLinkedChanged!(value, fields);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _isWarehouseLinked = !value);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSavingWarehouseLink = false);
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final showWarehouseToggle =
-        widget.dashboard.type == Dashboard.typeIncome &&
-        widget.onWarehouseLinkedChanged != null;
-
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -85,7 +23,7 @@ class _DashboardManageModalState extends State<DashboardManageModal> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            widget.dashboard.title,
+            dashboard.title,
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
@@ -95,20 +33,15 @@ class _DashboardManageModalState extends State<DashboardManageModal> {
             style: TextStyle(color: Colors.black54),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 20),
-          if (showWarehouseToggle)
-            SwitchListTile(
+          if (dashboard.isWarehouseLinked) ...[
+            const SizedBox(height: 12),
+            ListTile(
               contentPadding: EdgeInsets.zero,
-              secondary: Icon(
-                Icons.inventory_2_outlined,
-                color: _isWarehouseLinked ? Colors.teal : Colors.grey,
-              ),
-              title: const Text('Режим продажу зі складу'),
-              subtitle: const Text('Доступ до товарів з усіх складів'),
-              value: _isWarehouseLinked,
-              onChanged: _isSavingWarehouseLink ? null : _onWarehouseLinkedChanged,
+              leading: Icon(Icons.inventory_2_outlined, color: Colors.teal.shade700),
+              title: const Text('Підключено до складу — тип не можна змінити'),
             ),
-          if (showWarehouseToggle) const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 20),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.archive_outlined, color: Colors.orange),
@@ -116,7 +49,7 @@ class _DashboardManageModalState extends State<DashboardManageModal> {
             subtitle: const Text('Приховати з основного списку'),
             onTap: () {
               Navigator.pop(context);
-              widget.onArchive();
+              onArchive();
             },
           ),
           ListTile(
@@ -126,7 +59,7 @@ class _DashboardManageModalState extends State<DashboardManageModal> {
             subtitle: const Text('Безповоротно видалить таблицю і всі записи'),
             onTap: () {
               Navigator.pop(context);
-              widget.onDeleteForever();
+              onDeleteForever();
             },
           ),
         ],

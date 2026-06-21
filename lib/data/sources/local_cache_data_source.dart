@@ -13,6 +13,9 @@ import '../../models/sheet_data.dart';
 /// з попередніми версіями додатку.
 class LocalCacheDataSource {
   static const String dashboardsCategory = 'income_cache';
+  static const String activeSpreadsheetIdKey = 'activeSpreadsheetId';
+  static const String activeSpreadsheetNameKey = 'activeSpreadsheetName';
+  /// Legacy key — читається лише для міграції з попередніх версій.
   static const String spreadsheetDocIdKey = 'spreadsheet_doc_id';
 
   static String sheetRowsCategory(String sheetTitle) => 'cache_rows_$sheetTitle';
@@ -129,22 +132,64 @@ class LocalCacheDataSource {
     return prefs.getBool(type.prefsKey) ?? type.defaultEnabled;
   }
 
-  // --- Spreadsheet doc ID (для майбутнього кешування в SheetsApi) ---
+  // --- Active workspace (multi-spreadsheet) ---
 
-  Future<String?> getSpreadsheetDocId() async {
+  Future<String?> getActiveSpreadsheetId() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final activeId = prefs.getString(activeSpreadsheetIdKey);
+    if (activeId != null && activeId.isNotEmpty) {
+      return activeId;
+    }
     return prefs.getString(spreadsheetDocIdKey);
   }
+
+  Future<String?> getActiveSpreadsheetName() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    return prefs.getString(activeSpreadsheetNameKey);
+  }
+
+  Future<void> setActiveWorkspace({
+    required String id,
+    required String name,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(activeSpreadsheetIdKey, id);
+    await prefs.setString(activeSpreadsheetNameKey, name);
+    await prefs.setString(spreadsheetDocIdKey, id);
+    await prefs.reload();
+  }
+
+  Future<void> clearActiveWorkspace() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(activeSpreadsheetIdKey);
+    await prefs.remove(activeSpreadsheetNameKey);
+    await prefs.remove(spreadsheetDocIdKey);
+  }
+
+  /// Очищає кеш дашбордів і записів поточного workspace (при перемиканні таблиць).
+  Future<void> clearWorkspaceDataCaches() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keysToRemove = prefs.getKeys().where((key) {
+      return key.startsWith('dashboards_');
+    }).toList();
+
+    for (final key in keysToRemove) {
+      await prefs.remove(key);
+    }
+  }
+
+  /// Legacy alias — використовується SheetsApi для зворотної сумісності.
+  Future<String?> getSpreadsheetDocId() => getActiveSpreadsheetId();
 
   Future<void> saveSpreadsheetDocId(String docId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(spreadsheetDocIdKey, docId);
+    await prefs.setString(activeSpreadsheetIdKey, docId);
   }
 
-  Future<void> clearSpreadsheetDocId() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(spreadsheetDocIdKey);
-  }
+  Future<void> clearSpreadsheetDocId() => clearActiveWorkspace();
 
   // --- Internal helpers ---
 

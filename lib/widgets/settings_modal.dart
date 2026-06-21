@@ -1,22 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
 import '../data/repositories/settings_repository.dart';
+import '../data/repositories/workspace_repository.dart';
+import '../data/sources/google_api_auth.dart';
 import '../models/module_type.dart';
 
 class SettingsModal extends StatefulWidget {
-  final GoogleSignIn googleSignIn;
-  final SettingsRepository settingsRepository;
-  final bool initialIncome;
+  final SettingsRepository settingsRepository;  final bool initialIncome;
   final bool initialExpense;
   final bool initialWarehouse;
   final VoidCallback onSettingsChanged;
 
   const SettingsModal({
     super.key,
-    required this.googleSignIn,
-    required this.settingsRepository,
-    required this.initialIncome,
+    required this.settingsRepository,    required this.initialIncome,
     required this.initialExpense,
     required this.initialWarehouse,
     required this.onSettingsChanged,
@@ -89,9 +86,10 @@ class _SettingsModalState extends State<SettingsModal> {
             style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
             icon: const Icon(Icons.logout),
             label: const Text("Вийти з акаунта"),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              widget.googleSignIn.signOut();
+              await WorkspaceRepository().clearSessionOnLogout();
+              await GoogleApiAuth.disconnect();
             },
           ),
         ],

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../data/repositories/settings_repository.dart';
+import '../models/finlapa_spreadsheet.dart';
 import '../widgets/settings_modal.dart';
+import '../widgets/workspace_picker_sheet.dart';
 import 'tabs/expense_tab.dart';
 import 'tabs/income_tab.dart';
 import 'tabs/warehouse_tab.dart';
@@ -10,8 +12,20 @@ import 'tabs/warehouse_tab.dart';
 class HomeScreen extends StatefulWidget {
   final GoogleSignInAccount user;
   final GoogleSignIn googleSignIn;
+  final FinLapaSpreadsheet activeWorkspace;
+  final ValueChanged<FinLapaSpreadsheet> onWorkspaceChanged;
+  final VoidCallback? onActiveWorkspaceDeleted;
+  final Future<FinLapaSpreadsheet> Function(String name)? onCreateWorkspace;
 
-  const HomeScreen({super.key, required this.user, required this.googleSignIn});
+  const HomeScreen({
+    super.key,
+    required this.user,
+    required this.googleSignIn,
+    required this.activeWorkspace,
+    required this.onWorkspaceChanged,
+    this.onActiveWorkspaceDeleted,
+    this.onCreateWorkspace,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -27,10 +41,22 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showWarehouse = false;
   bool _isLoading = true;
 
+  late FinLapaSpreadsheet _activeWorkspace;
+
   @override
   void initState() {
     super.initState();
+    _activeWorkspace = widget.activeWorkspace;
     _loadSettings();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.activeWorkspace.id != widget.activeWorkspace.id) {
+      _activeWorkspace = widget.activeWorkspace;
+      _currentIndex = 0;
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -51,12 +77,40 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => SettingsModal(
-        googleSignIn: widget.googleSignIn,
         settingsRepository: _settingsRepository,
         initialIncome: _showIncome,
         initialExpense: _showExpense,
         initialWarehouse: _showWarehouse,
         onSettingsChanged: _loadSettings,
+      ),
+    );
+  }
+
+  void _openWorkspacePicker() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        minChildSize: 0.35,
+        maxChildSize: 0.85,
+        builder: (context, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          child: WorkspacePickerSheet(
+            user: widget.user,
+            activeSpreadsheetId: _activeWorkspace.id,
+            onCreate: widget.onCreateWorkspace,
+            onActiveWorkspaceDeleted: widget.onActiveWorkspaceDeleted,
+            onSelected: (workspace) {
+              if (workspace.id == _activeWorkspace.id) return;
+              widget.onWorkspaceChanged(workspace);
+            },
+          ),
+        ),
       ),
     );
   }
@@ -67,23 +121,25 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final workspaceKey = _activeWorkspace.id;
+
     List<Widget> activeTabs = [];
     List<BottomNavigationBarItem> navItems = [];
 
     if (_showIncome) {
-      activeTabs.add(IncomeTab(user: widget.user));
+      activeTabs.add(IncomeTab(key: ValueKey('income-$workspaceKey'), user: widget.user));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Доходи'),
       );
     }
     if (_showExpense) {
-      activeTabs.add(ExpenseTab(user: widget.user));
+      activeTabs.add(ExpenseTab(key: ValueKey('expense-$workspaceKey'), user: widget.user));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.trending_down), label: 'Витрати'),
       );
     }
     if (_showWarehouse) {
-      activeTabs.add(WarehouseTab(user: widget.user));
+      activeTabs.add(WarehouseTab(key: ValueKey('warehouse-$workspaceKey'), user: widget.user));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Склад'),
       );
@@ -91,7 +147,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('FinLapa', style: TextStyle(fontWeight: FontWeight.w900)),
+        title: GestureDetector(
+          onTap: _openWorkspacePicker,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  _activeWorkspace.name,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.arrow_drop_down, size: 28),
+            ],
+          ),
+        ),
         elevation: 2,
         actions: [
           GestureDetector(

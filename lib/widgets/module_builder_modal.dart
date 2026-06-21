@@ -4,7 +4,13 @@ import '../../models/dashboard.dart';
 
 class ModuleBuilderModal extends StatefulWidget {
   final String dashboardType;
-  final Future<void> Function(String moduleName, List<String> fields, int iconCode, int colorValue) onSave;
+  final Future<void> Function(
+    String moduleName,
+    List<String> fields,
+    int iconCode,
+    int colorValue,
+    bool isWarehouseLinked,
+  ) onSave;
 
   const ModuleBuilderModal({
     super.key,
@@ -16,8 +22,9 @@ class ModuleBuilderModal extends StatefulWidget {
   State<ModuleBuilderModal> createState() => _ModuleBuilderModalState();
 }
 class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
-  bool _isSaving = false; // <--- ОСЬ ЦЕЙ РЯДОК ЗАГУБИВСЯ!
-  
+  bool _isSaving = false;
+  bool _isWarehouseLinked = false;
+
   String _moduleName = "";
   final List<String> _fields = []; 
   final TextEditingController _fieldController = TextEditingController();
@@ -119,18 +126,49 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
     );
   }
 
+  bool _hasMoneyField(List<String> fields) {
+    const moneyKeywords = ['сум', 'amount', 'цін', 'варт'];
+    return fields.any((field) {
+      final lower = field.toLowerCase();
+      return moneyKeywords.any((keyword) => lower.contains(keyword));
+    });
+  }
+
+  List<String> _ensureMoneyField(List<String> fields) {
+    if (_hasMoneyField(fields)) {
+      return List<String>.from(fields);
+    }
+    return ['Сума', ...fields];
+  }
+
   List<String> _resolveFieldsToSave() {
     if (widget.dashboardType == Dashboard.typeWarehouse) {
       return Dashboard.buildWarehouseFields(_fields);
     }
-    return List<String>.from(_fields);
+
+    final fields = List<String>.from(_fields);
+    if (widget.dashboardType == Dashboard.typeIncome && _isWarehouseLinked) {
+      return _ensureMoneyField(fields);
+    }
+    return fields;
   }
 
   bool get _canSave {
-    if (_moduleName.isEmpty) return false;
-    if (widget.dashboardType == Dashboard.typeWarehouse) return true;
+    if (_moduleName.trim().isEmpty) return false;
+
+    if (widget.dashboardType == Dashboard.typeWarehouse) {
+      return true;
+    }
+
+    if (widget.dashboardType == Dashboard.typeIncome && _isWarehouseLinked) {
+      return true;
+    }
+
     return _fields.isNotEmpty;
   }
+
+  bool get _showWarehouseLinkToggle =>
+      widget.dashboardType == Dashboard.typeIncome;
 
   @override
   Widget build(BuildContext context) {
@@ -186,8 +224,24 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
             const SizedBox(height: 20),
             TextField(
               decoration: const InputDecoration(labelText: "Назва", border: OutlineInputBorder()),
-              onChanged: (val) => _moduleName = val,
+              onChanged: (val) => setState(() => _moduleName = val),
             ),
+            if (_showWarehouseLinkToggle) ...[
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: Icon(
+                  Icons.inventory_2_outlined,
+                  color: _isWarehouseLinked ? Colors.teal : Colors.grey,
+                ),
+                title: const Text('Підключити до складу'),
+                subtitle: const Text(
+                  'Продажі з цього дашборду будуть прив\'язані до товарів на складі',
+                ),
+                value: _isWarehouseLinked,
+                onChanged: (value) => setState(() => _isWarehouseLinked = value),
+              ),
+            ],
             const SizedBox(height: 20),
             if (widget.dashboardType == Dashboard.typeWarehouse) ...[
               const Text(
@@ -263,11 +317,26 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                 height: 100,
                 child: ReorderableListView(
                   shrinkWrap: true,
-                  children: _fields.map((f) => ListTile(
-                    key: ValueKey('${widget.dashboardType}-field-$f'),
-                    title: Text(f, style: const TextStyle(fontSize: 14)),
-                    trailing: const Icon(Icons.drag_handle, size: 18),
-                  )).toList(),
+                  children: _fields.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final field = entry.value;
+
+                    return ListTile(
+                      key: ValueKey('${widget.dashboardType}-field-$idx-$field'),
+                      title: Text(field, style: const TextStyle(fontSize: 14)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20, color: Colors.redAccent),
+                            tooltip: 'Видалити поле',
+                            onPressed: () => setState(() => _fields.removeAt(idx)),
+                          ),
+                          const Icon(Icons.drag_handle, size: 18),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                   onReorder: (oldIdx, newIdx) {
                     setState(() {
                       if (newIdx > oldIdx) newIdx -= 1;
@@ -275,6 +344,16 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                     });
                   },
                 ),
+              ),
+            ],
+            if (!_canSave && _moduleName.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                _showWarehouseLinkToggle && !_isWarehouseLinked
+                    ? 'Додайте хоча б одне поле для звичайного дашборду'
+                    : 'Заповніть назву модуля',
+                style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+                textAlign: TextAlign.center,
               ),
             ],
             
@@ -285,19 +364,19 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                 backgroundColor: _selectedColor, 
                 foregroundColor: Colors.white
               ),
-              // Якщо _isSaving == true, ставимо null (це вимикає кнопку)
-              onPressed: _isSaving ? null : () async {
-                if (_canSave) {
-                  setState(() => _isSaving = true);
+              onPressed: (_isSaving || !_canSave)
+                  ? null
+                  : () async {
+                      setState(() => _isSaving = true);
 
-                  await widget.onSave(
-                    _moduleName,
-                    _resolveFieldsToSave(),
-                    _selectedIcon.codePoint,
-                    _selectedColor.value,
-                  );
-                }
-              },
+                      await widget.onSave(
+                        _moduleName.trim(),
+                        _resolveFieldsToSave(),
+                        _selectedIcon.codePoint,
+                        _selectedColor.value,
+                        _isWarehouseLinked,
+                      );
+                    },
               // Змінюємо текст на крутилку, якщо йде збереження
               child: _isSaving 
                   ? const SizedBox(

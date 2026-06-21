@@ -115,6 +115,9 @@ class _ModuleEditModalState extends State<ModuleEditModal> {
     );
   }
 
+  bool get _isWarehouseLinked =>
+      widget.initialDashboard['isWarehouseLinked'] == true;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -128,6 +131,14 @@ class _ModuleEditModalState extends State<ModuleEditModal> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text("Налаштування модуля", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            if (_isWarehouseLinked) ...[
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.inventory_2_outlined, color: Colors.teal.shade700),
+                title: const Text('Підключено до складу — тип не можна змінити'),
+              ),
+            ],
             const SizedBox(height: 20),
             
             Row(
@@ -195,7 +206,8 @@ class _ModuleEditModalState extends State<ModuleEditModal> {
                     trailing: isLocked
                         ? const Icon(Icons.lock_outline, size: 18, color: Colors.grey)
                         : IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                            icon: const Icon(Icons.close, color: Colors.redAccent, size: 20),
+                            tooltip: 'Видалити поле',
                             onPressed: () => setState(() => _fields.removeAt(idx)),
                           ),
                   );

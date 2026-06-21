@@ -109,13 +109,14 @@ class _IncomeTabState extends State<IncomeTab> {
       ),
       builder: (context) => ModuleBuilderModal(
         dashboardType: Dashboard.typeIncome,
-        onSave: (moduleName, fields, iconCode, colorValue) async {
+        onSave: (moduleName, fields, iconCode, colorValue, isWarehouseLinked) async {
           final newDashboard = Dashboard(
             title: moduleName,
             fields: fields,
             iconCode: iconCode,
             colorValue: colorValue,
             type: Dashboard.typeIncome,
+            isWarehouseLinked: isWarehouseLinked,
           );
           final updatedDashboards = [..._dashboards, newDashboard];
 
@@ -165,44 +166,10 @@ class _IncomeTabState extends State<IncomeTab> {
       ),
       builder: (context) => DashboardManageModal(
         dashboard: dashboard,
-        onWarehouseLinkedChanged: (isWarehouseLinked, fields) =>
-            _updateWarehouseLinked(dashboard, isWarehouseLinked, fields),
         onArchive: () => _archiveDashboard(dashboard),
         onDeleteForever: () => _confirmDeleteDashboard(dashboard),
       ),
     );
-  }
-
-  Future<void> _updateWarehouseLinked(
-    Dashboard dashboard,
-    bool isWarehouseLinked,
-    List<String> fields,
-  ) async {
-    final updated = _dashboards
-        .map(
-          (item) => item.title == dashboard.title && item.type == Dashboard.typeIncome
-              ? item.copyWith(
-                  isWarehouseLinked: isWarehouseLinked,
-                  fields: fields,
-                )
-              : item,
-        )
-        .toList();
-
-    try {
-      await _saveDashboards(updated);
-    } catch (error) {
-      if (mounted && isNetworkError(error)) {
-        setState(() => _isOffline = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Немає зв\'язку з інтернетом.'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-      rethrow;
-    }
   }
 
   Future<void> _archiveDashboard(Dashboard dashboard) async {
