@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/dashboard.dart';
+import 'warehouse_linked_info_banner.dart';
 
 class DashboardManageModal extends StatelessWidget {
   final Dashboard dashboard;
@@ -35,11 +36,7 @@ class DashboardManageModal extends StatelessWidget {
           ),
           if (dashboard.isWarehouseLinked) ...[
             const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.inventory_2_outlined, color: Colors.teal.shade700),
-              title: const Text('Підключено до складу — тип не можна змінити'),
-            ),
+            const WarehouseLinkedInfoBanner(),
           ],
           const SizedBox(height: 20),
           ListTile(

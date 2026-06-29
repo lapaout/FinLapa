@@ -133,6 +133,7 @@ class WorkspaceRepository {
   Future<void> clearSessionOnLogout() async {
     await _cache.clearWorkspaceDataCaches();
     await _cache.clearActiveWorkspace();
+    SheetsApi.clearFolderCache();
   }
 
   Future<String?> readCachedWorkspaceId() => _cache.getActiveSpreadsheetId();

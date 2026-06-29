@@ -6,6 +6,7 @@ import '../../data/repositories/dashboard_repository.dart';
 import '../../data/repositories/sheet_records_repository.dart';
 import '../../models/dashboard.dart';
 import '../../widgets/dashboard_manage_modal.dart';
+import '../../widgets/delete_dashboard_dialog.dart';
 import '../../widgets/module_builder_modal.dart';
 import '../../widgets/data_entry_modal.dart';
 import '../history_screen.dart';
@@ -13,21 +14,30 @@ import 'edit_tab.dart';
 
 class WarehouseTab extends StatefulWidget {
   final GoogleSignInAccount user;
+  final bool isActive;
 
-  const WarehouseTab({super.key, required this.user});
+  const WarehouseTab({
+    super.key,
+    required this.user,
+    this.isActive = false,
+  });
 
   @override
   State<WarehouseTab> createState() => _WarehouseTabState();
 }
 
-class _WarehouseTabState extends State<WarehouseTab> {
+class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClientMixin {
   final DashboardRepository _dashboardRepository = DashboardRepository();
   final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
 
   List<Dashboard> _dashboards = [];
   bool _isSending = false;
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _isOffline = false;
+  bool _hasLoadedOnce = false;
+
+  @override
+  bool get wantKeepAlive => _hasLoadedOnce;
 
   List<Dashboard> get _incomeDashboards =>
       _dashboards.where((dashboard) => dashboard.type == Dashboard.typeIncome).toList();
@@ -58,7 +68,17 @@ class _WarehouseTabState extends State<WarehouseTab> {
   @override
   void initState() {
     super.initState();
-    _loadDashboards();
+    if (widget.isActive) {
+      _loadDashboards();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant WarehouseTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive && !_hasLoadedOnce) {
+      _loadDashboards();
+    }
   }
 
   Future<void> _loadDashboards() async {
@@ -75,7 +95,9 @@ class _WarehouseTabState extends State<WarehouseTab> {
       _dashboards = result.data;
       _isOffline = result.isOffline;
       _isLoading = false;
+      _hasLoadedOnce = true;
     });
+    updateKeepAlive();
 
     if (result.isOffline) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -204,28 +226,12 @@ class _WarehouseTabState extends State<WarehouseTab> {
   }
 
   Future<void> _confirmDeleteDashboard(Dashboard dashboard) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ви впевнені?'),
-        content: const Text(
-          'Це безповоротно видалить таблицю і всі записи!',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Скасувати'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
-            child: const Text('Видалити'),
-          ),
-        ],
-      ),
+    final confirmed = await showDeleteDashboardDialog(
+      context,
+      dashboardTitle: dashboard.title,
     );
 
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
 
     try {
       await _dashboardRepository.deleteDashboard(
@@ -411,14 +417,21 @@ class _WarehouseTabState extends State<WarehouseTab> {
             children: [
               Icon(icon, color: color, size: 22),
               const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+              SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -498,7 +511,7 @@ class _WarehouseTabState extends State<WarehouseTab> {
                 }),
                 _buildActionButton(
                   Icons.settings,
-                  "Налаштув.",
+                  "Налаштування",
                   Colors.blueGrey,
                   () => _openDashboardManage(dashboard),
                 ),
@@ -542,6 +555,10 @@ class _WarehouseTabState extends State<WarehouseTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+    if (!_hasLoadedOnce && !widget.isActive) {
+      return const SizedBox.shrink();
+    }
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_isSending) {
       return const Center(

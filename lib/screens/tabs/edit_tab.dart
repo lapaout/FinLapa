@@ -128,6 +128,8 @@ class _EditTabState extends State<EditTab> {
         title: Text(
           'Редагування: $_title',
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         backgroundColor: _color.withOpacity(0.1),
       ),

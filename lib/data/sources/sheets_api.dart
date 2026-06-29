@@ -16,6 +16,11 @@ class SheetsApi {
   static final LocalCacheDataSource _localCache = LocalCacheDataSource();
   static String? _cachedFinLapaFolderId;
 
+  /// Скидає кеш ID папки FinLapa (logout / зміна акаунта).
+  static void clearFolderCache() {
+    _cachedFinLapaFolderId = null;
+  }
+
   static Future<List<List<String>>> readSheetData({
     required GoogleSignInAccount user,
     required String sheetName,

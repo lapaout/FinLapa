@@ -196,7 +196,10 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                     child: Icon(_selectedIcon, color: _selectedColor, size: 30),
                   ),
                 ),
-                const Text("➔ Клікніть на іконку для вибору"),
+                const SizedBox(width: 12),
+                const Flexible(
+                  child: Text("➔ Клікніть на іконку для вибору"),
+                ),
               ],
             ),
             const SizedBox(height: 20),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'warehouse_linked_info_banner.dart';
+
 class ModuleEditModal extends StatefulWidget {
   final Map<String, dynamic> initialDashboard;
   final Function(String moduleName, List<String> fields, int iconCode, int colorValue) onSave;
@@ -133,11 +135,7 @@ class _ModuleEditModalState extends State<ModuleEditModal> {
             const Text("Налаштування модуля", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             if (_isWarehouseLinked) ...[
               const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.inventory_2_outlined, color: Colors.teal.shade700),
-                title: const Text('Підключено до складу — тип не можна змінити'),
-              ),
+              const WarehouseLinkedInfoBanner(),
             ],
             const SizedBox(height: 20),
             
@@ -152,7 +150,10 @@ class _ModuleEditModalState extends State<ModuleEditModal> {
                     child: Icon(_selectedIcon, color: _selectedColor, size: 30),
                   ),
                 ),
-                const Text("➔ Клікніть для зміни"),
+                const SizedBox(width: 12),
+                const Flexible(
+                  child: Text("➔ Клікніть для зміни"),
+                ),
               ],
             ),
             const SizedBox(height: 20),

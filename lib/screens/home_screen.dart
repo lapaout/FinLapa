@@ -122,24 +122,43 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final workspaceKey = _activeWorkspace.id;
+    final tabCount = (_showIncome ? 1 : 0) +
+        (_showExpense ? 1 : 0) +
+        (_showWarehouse ? 1 : 0);
+    final safeIndex = _currentIndex >= tabCount ? 0 : _currentIndex;
 
     List<Widget> activeTabs = [];
     List<BottomNavigationBarItem> navItems = [];
+    var tabIndex = 0;
 
     if (_showIncome) {
-      activeTabs.add(IncomeTab(key: ValueKey('income-$workspaceKey'), user: widget.user));
+      activeTabs.add(IncomeTab(
+        key: ValueKey('income-$workspaceKey'),
+        user: widget.user,
+        isActive: safeIndex == tabIndex,
+      ));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Доходи'),
       );
+      tabIndex++;
     }
     if (_showExpense) {
-      activeTabs.add(ExpenseTab(key: ValueKey('expense-$workspaceKey'), user: widget.user));
+      activeTabs.add(ExpenseTab(
+        key: ValueKey('expense-$workspaceKey'),
+        user: widget.user,
+        isActive: safeIndex == tabIndex,
+      ));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.trending_down), label: 'Витрати'),
       );
+      tabIndex++;
     }
     if (_showWarehouse) {
-      activeTabs.add(WarehouseTab(key: ValueKey('warehouse-$workspaceKey'), user: widget.user));
+      activeTabs.add(WarehouseTab(
+        key: ValueKey('warehouse-$workspaceKey'),
+        user: widget.user,
+        isActive: safeIndex == tabIndex,
+      ));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Склад'),
       );
@@ -182,10 +201,13 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: activeTabs.isEmpty
           ? const Center(child: Text("Увімкніть модулі в налаштуваннях"))
-          : activeTabs[_currentIndex >= activeTabs.length ? 0 : _currentIndex],
+          : IndexedStack(
+              index: safeIndex,
+              children: activeTabs,
+            ),
       bottomNavigationBar: navItems.length > 1
           ? BottomNavigationBar(
-              currentIndex: _currentIndex >= navItems.length ? 0 : _currentIndex,
+              currentIndex: safeIndex,
               onTap: (index) => setState(() => _currentIndex = index),
               selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
               items: navItems,

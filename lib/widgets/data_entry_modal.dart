@@ -151,9 +151,8 @@ class _DataEntryModalState extends State<DataEntryModal> {
       setState(() {
         _warehouseItems = items;
         _isLoadingWarehouseItems = false;
-        if (widget.isWarehouseLinked && _warehouseTitles.isNotEmpty) {
-          _selectedWarehouseTitle = _warehouseTitles.first;
-        }
+        // Початкове значення лишається null — користувач має явно обрати склад,
+        // щоб уникнути помилкових записів у перший склад зі списку.
       });
     } catch (_) {
       if (!mounted) return;
@@ -195,6 +194,11 @@ class _DataEntryModalState extends State<DataEntryModal> {
 
   void _handleSave() {
     if (widget.isWarehouseLinked) {
+      if (_selectedWarehouseTitle == null) {
+        _showValidationError('Оберіть склад!');
+        return;
+      }
+
       if (_selectedWarehouseItemId == null) {
         _showValidationError('Оберіть товар зі складу!');
         return;
@@ -256,6 +260,8 @@ class _DataEntryModalState extends State<DataEntryModal> {
             labelText: 'Оберіть склад',
             border: OutlineInputBorder(),
           ),
+          hint: const Text('Оберіть склад'),
+          isExpanded: true,
           items: _warehouseTitles
               .map(
                 (title) => DropdownMenuItem<String?>(
@@ -280,6 +286,8 @@ class _DataEntryModalState extends State<DataEntryModal> {
               labelText: 'Оберіть товар',
               border: OutlineInputBorder(),
             ),
+            hint: const Text('Оберіть товар'),
+            isExpanded: true,
             items: [
               const DropdownMenuItem<String?>(
                 value: null,
@@ -288,7 +296,10 @@ class _DataEntryModalState extends State<DataEntryModal> {
               ..._itemsForSelectedWarehouse.map(
                 (item) => DropdownMenuItem<String?>(
                   value: item.dateTime,
-                  child: Text(item.name),
+                  child: Text(
+                    item.name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -376,7 +387,11 @@ class _DataEntryModalState extends State<DataEntryModal> {
                     )
                   : const Icon(Icons.cloud_upload),
               label: Text(widget.isSending ? "Відправка..." : "Зберегти в Таблицю"),
-              onPressed: widget.isSending || _isLoadingWarehouseItems ? null : _handleSave,
+              onPressed: widget.isSending ||
+                      _isLoadingWarehouseItems ||
+                      (widget.isWarehouseLinked && _selectedWarehouseItemId == null)
+                  ? null
+                  : _handleSave,
             ),
             const SizedBox(height: 24),
           ],
