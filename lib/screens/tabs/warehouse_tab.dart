@@ -10,6 +10,7 @@ import '../../widgets/delete_dashboard_dialog.dart';
 import '../../widgets/module_builder_modal.dart';
 import '../../widgets/data_entry_modal.dart';
 import '../history_screen.dart';
+import '../dashboard_overview_screen.dart';
 import 'edit_tab.dart';
 
 class WarehouseTab extends StatefulWidget {
@@ -348,6 +349,22 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
     }
   }
 
+  void _openDashboardOverview(Dashboard dashboard) {
+    final colorData = Color(dashboard.colorValue);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DashboardOverviewScreen(
+          user: widget.user,
+          dashboardTitle: dashboard.title,
+          dashboardColor: colorData,
+          dashboardType: dashboard.type,
+          dashboardFields: dashboard.fields,
+        ),
+      ),
+    );
+  }
+
   void _openDataEntryForm(Dashboard dashboard) {
     final title = dashboard.title;
     final fields = List<String>.from(dashboard.fields);
@@ -469,21 +486,29 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: colorData.withOpacity(0.1),
-                  child: Icon(iconData, color: colorData, size: 20),
+            InkWell(
+              onTap: () => _openDashboardOverview(dashboard),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: colorData.withOpacity(0.1),
+                      child: Icon(iconData, color: colorData, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        dashboard.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 22),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    dashboard.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-                  ),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 10),
             const Divider(height: 1),

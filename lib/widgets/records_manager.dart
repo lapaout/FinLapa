@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../core/ui_field_filter.dart';
+import '../core/warehouse_analytics.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import 'record_edit_modal.dart';
 
@@ -64,6 +66,232 @@ class _RecordsManagerState extends State<RecordsManager> {
     
     return null; // Якщо дату неможливо розпізнати
   }
+  void _openEditModal(
+    BuildContext context,
+    Map<String, dynamic> item,
+    int rowIndex,
+    List<String> row,
+  ) {
+    if (widget.isOffline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Редагування недоступне в офлайн режимі'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => RecordEditModal(
+        headers: widget.headers,
+        rowData: row,
+        onSave: (newValues) async {
+          Navigator.pop(context);
+          setState(() => _isUpdating = true);
+
+          try {
+            await _recordsRepository.updateRecord(
+              user: widget.user,
+              sheetTitle: widget.sheetName,
+              rowIndex: rowIndex,
+              values: newValues,
+            );
+
+            setState(() {
+              item['row'] = newValues;
+            });
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Запис оновлено!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+
+            widget.onRecordUpdated(rowIndex, newValues);
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('❌ Помилка: $e'),
+                  backgroundColor: Colors.redAccent,
+                ),
+              );
+            }
+          } finally {
+            if (mounted) setState(() => _isUpdating = false);
+          }
+        },
+        onDelete: () async {
+          setState(() => _isUpdating = true);
+          try {
+            await _recordsRepository.deleteRecord(
+              user: widget.user,
+              sheetTitle: widget.sheetName,
+              rowIndex: rowIndex,
+            );
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Запис видалено'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+
+            widget.onRecordDeleted?.call(rowIndex);
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('❌ Помилка: $e'),
+                  backgroundColor: Colors.redAccent,
+                ),
+              );
+            }
+            rethrow;
+          } finally {
+            if (mounted) setState(() => _isUpdating = false);
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _confirmAndDelete(
+    BuildContext context,
+    int rowIndex,
+  ) async {
+    if (widget.isOffline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Видалення недоступне в офлайн режимі'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Видалити запис?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Скасувати'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Видалити', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isUpdating = true);
+    try {
+      await _recordsRepository.deleteRecord(
+        user: widget.user,
+        sheetTitle: widget.sheetName,
+        rowIndex: rowIndex,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Запис видалено'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+
+      widget.onRecordDeleted?.call(rowIndex);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Помилка: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
+  Widget _buildWarehouseSaleInfo(List<String> row) {
+    final warehouseItemRaw = fieldValueFromRow(
+      widget.headers,
+      row,
+      'Товар зі складу',
+      '_warehouseItemName',
+    );
+    final soldQty = fieldValueFromRow(
+      widget.headers,
+      row,
+      'Продано (шт)',
+      '_soldQuantity',
+    );
+    final warehouseTitle = warehouseTitleFromItemField(warehouseItemRaw);
+    final productName = productNameFromItemField(warehouseItemRaw);
+
+    if (warehouseTitle == null || warehouseTitle.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Склад: $warehouseTitle',
+            style: TextStyle(
+              color: Colors.teal.shade700,
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+            ),
+          ),
+          if (productName != null && productName.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Товар: $productName',
+              style: TextStyle(
+                color: Colors.teal.shade600,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ],
+          if (soldQty != null && soldQty.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Продано: $soldQty шт.',
+              style: TextStyle(
+                color: Colors.teal.shade600,
+                fontWeight: FontWeight.w500,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   // Метод для відкриття календаря (вибір кастомного періоду)
   Future<void> _selectCustomDateRange() async {
     final DateTimeRange? picked = await showDateRangePicker(
@@ -183,7 +411,6 @@ class _RecordsManagerState extends State<RecordsManager> {
           ...filteredRecords.map((item) {
             final rowIndex = item['rowIndex'] as int;
             final row = item['row'] as List<String>;
-            final dateStr = row.isNotEmpty ? row[0] : 'Без дати';
 
             List<Widget> fieldWidgets = [];
             final headerIndexes = widget.hideDateFeatures
@@ -193,7 +420,8 @@ class _RecordsManagerState extends State<RecordsManager> {
             for (final i in headerIndexes) {
               if (i < widget.headers.length && i < row.length) {
                 final headerName = widget.headers[i];
-                if (headerName.startsWith('_')) continue;
+                if (isHiddenUiField(headerName)) continue;
+                if (isWarehouseLinkedDisplayField(headerName)) continue;
 
                 String value = row[i];
                 final headerLower = headerName.toLowerCase();
@@ -236,121 +464,29 @@ class _RecordsManagerState extends State<RecordsManager> {
               elevation: 1,
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(14.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ...fieldWidgets,
-                          if (!widget.hideDateFeatures) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(Icons.access_time, size: 12, color: Colors.grey.shade400),
-                                const SizedBox(width: 4),
-                                Text(dateStr, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
-                              ],
-                            ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => _openEditModal(context, item, rowIndex, row),
+                child: Padding(
+                  padding: const EdgeInsets.all(14.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildWarehouseSaleInfo(row),
+                            ...fieldWidgets,
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_note, color: Colors.blueGrey, size: 28),
-                      onPressed: () {
-                        if (widget.isOffline) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Редагування недоступне в офлайн режимі'), backgroundColor: Colors.redAccent));
-                          return;
-                        }
-
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                          builder: (context) => RecordEditModal(
-                            headers: widget.headers,
-                            rowData: row,
-                            onSave: (newValues) async {
-                              Navigator.pop(context);
-                              setState(() => _isUpdating = true);
-
-                              try {
-                                await _recordsRepository.updateRecord(
-                                  user: widget.user,
-                                  sheetTitle: widget.sheetName,
-                                  rowIndex: rowIndex,
-                                  values: newValues,
-                                );
-
-                                setState(() {
-                                  item['row'] = newValues;
-                                });
-
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('✅ Запис оновлено!'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
-
-                                widget.onRecordUpdated(rowIndex, newValues);
-                              } catch (e) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('❌ Помилка: $e'),
-                                      backgroundColor: Colors.redAccent,
-                                    ),
-                                  );
-                                }
-                              } finally {
-                                if (mounted) setState(() => _isUpdating = false);
-                              }
-                            },
-                            onDelete: () async {
-                              setState(() => _isUpdating = true);
-                              try {
-                                await _recordsRepository.deleteRecord(
-                                  user: widget.user,
-                                  sheetTitle: widget.sheetName,
-                                  rowIndex: rowIndex,
-                                );
-
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('✅ Запис видалено'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
-
-                                widget.onRecordDeleted?.call(rowIndex);
-                              } catch (e) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('❌ Помилка: $e'),
-                                      backgroundColor: Colors.redAccent,
-                                    ),
-                                  );
-                                }
-                                rethrow;
-                              } finally {
-                                if (mounted) setState(() => _isUpdating = false);
-                              }
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _confirmAndDelete(context, rowIndex),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );

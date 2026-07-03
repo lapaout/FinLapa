@@ -69,6 +69,52 @@ String? parseWarehouseItemId(Map<String, String> fields) {
   return value.trim();
 }
 
+/// Значення поля з рядка за назвою колонки (з опційним запасним ключем).
+String? fieldValueFromRow(
+  List<String> headers,
+  List<String> row,
+  String key, [
+  String? fallbackKey,
+]) {
+  for (var i = 0; i < headers.length && i < row.length; i++) {
+    if (headers[i] == key) {
+      final value = row[i].trim();
+      if (value.isNotEmpty) return value;
+    }
+  }
+  if (fallbackKey != null) {
+    for (var i = 0; i < headers.length && i < row.length; i++) {
+      if (headers[i] == fallbackKey) {
+        final value = row[i].trim();
+        if (value.isNotEmpty) return value;
+      }
+    }
+  }
+  return null;
+}
+
+/// Назва складу з поля «Товар зі складу» формату `[Склад] Товар`.
+String? warehouseTitleFromItemField(String? value) {
+  if (value == null || value.trim().isEmpty) return null;
+  final match = RegExp(r'^\[([^\]]+)\]').firstMatch(value.trim());
+  return match?.group(1)?.trim();
+}
+
+/// Назва товару без префікса складу.
+String? productNameFromItemField(String? value) {
+  if (value == null || value.trim().isEmpty) return null;
+  final trimmed = value.trim();
+  final match = RegExp(r'^\[[^\]]+\]\s*(.+)$').firstMatch(trimmed);
+  return match?.group(1)?.trim() ?? trimmed;
+}
+
+bool isWarehouseLinkedDisplayField(String header) {
+  return header == 'Товар зі складу' ||
+      header == '_warehouseItemName' ||
+      header == 'Продано (шт)' ||
+      header == '_soldQuantity';
+}
+
 num parseIncomeAmount(
   SheetRecord record,
   List<String> dashboardFields, {

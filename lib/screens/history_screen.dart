@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../core/ui_field_filter.dart';
 import '../core/warehouse_analytics.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
@@ -206,10 +207,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   bool _isHiddenHistoryHeader(String header) {
-    return header.startsWith('_') ||
-        header == 'ID товару (приховано)' ||
-        header == 'Продано (шт)' ||
-        header == 'Товар зі складу';
+    if (isHiddenUiField(header)) return true;
+    return header == 'Продано (шт)' || header == 'Товар зі складу';
   }
 
   String? _warehouseField(Map<String, String> fields, String newKey, String oldKey) {
