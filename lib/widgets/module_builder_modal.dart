@@ -371,14 +371,19 @@ class _ModuleBuilderModalState extends State<ModuleBuilderModal> {
                   ? null
                   : () async {
                       setState(() => _isSaving = true);
-
-                      await widget.onSave(
-                        _moduleName.trim(),
-                        _resolveFieldsToSave(),
-                        _selectedIcon.codePoint,
-                        _selectedColor.value,
-                        _isWarehouseLinked,
-                      );
+                      try {
+                        await widget.onSave(
+                          _moduleName.trim(),
+                          _resolveFieldsToSave(),
+                          _selectedIcon.codePoint,
+                          _selectedColor.value,
+                          _isWarehouseLinked,
+                        );
+                      } finally {
+                        // Якщо onSave не закрив модалку (помилка мережі),
+                        // повертаємо кнопку в активний стан для повторної спроби.
+                        if (mounted) setState(() => _isSaving = false);
+                      }
                     },
               // Змінюємо текст на крутилку, якщо йде збереження
               child: _isSaving 

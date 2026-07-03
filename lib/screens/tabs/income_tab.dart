@@ -110,18 +110,6 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
     }
   }
 
-  Future<void> _saveDashboards(List<Dashboard> dashboards) async {
-    await _dashboardRepository.saveDashboards(
-      user: widget.user,
-      dashboards: dashboards,
-    );
-    if (!mounted) return;
-    setState(() {
-      _dashboards = dashboards;
-      _isOffline = false;
-    });
-  }
-
   void _openModuleBuilder() {
     showModalBottomSheet(
       context: context,
@@ -140,30 +128,32 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
             type: Dashboard.typeIncome,
             isWarehouseLinked: isWarehouseLinked,
           );
-          final updatedDashboards = [..._dashboards, newDashboard];
 
           try {
-            await _saveDashboards(updatedDashboards);
+            // Read-Before-Write: репозиторій сам читає свіжий список з хмари.
+            final latest = await _dashboardRepository.createDashboard(
+              user: widget.user,
+              dashboard: newDashboard,
+            );
+            if (!mounted) return;
+            setState(() {
+              _dashboards = latest;
+              _isOffline = false;
+            });
             if (context.mounted) Navigator.pop(context);
           } catch (error) {
-            if (isNetworkError(error)) {
-              if (mounted) {
-                setState(() => _isOffline = true);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('❌ Немає зв\'язку з інтернетом.'),
-                    backgroundColor: Colors.redAccent,
-                  ),
-                );
-              }
-            } else {
-              if (!mounted) return;
-              setState(() {
-                _dashboards = updatedDashboards;
-                _isOffline = false;
-              });
-              if (context.mounted) Navigator.pop(context);
-            }
+            if (!mounted) return;
+            setState(() => _isOffline = isNetworkError(error));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isNetworkError(error)
+                      ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
+                      : '❌ Помилка збереження: $error',
+                ),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
           }
         },
       ),
@@ -195,34 +185,37 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
   }
 
   Future<void> _archiveDashboard(Dashboard dashboard) async {
-    final updated = _dashboards
-        .map(
-          (item) => item.title == dashboard.title && item.type == Dashboard.typeIncome
-              ? item.copyWith(isArchived: true)
-              : item,
-        )
-        .toList();
-
     try {
-      await _saveDashboards(updated);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('📦 "${dashboard.title}" переміщено в архів'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      // Read-Before-Write: оновлюємо запис у свіжому хмарному списку.
+      final latest = await _dashboardRepository.updateDashboard(
+        user: widget.user,
+        oldTitle: dashboard.title,
+        updatedDashboard: dashboard.copyWith(isArchived: true),
+      );
+      if (!mounted) return;
+      setState(() {
+        _dashboards = latest;
+        _isOffline = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('📦 "${dashboard.title}" переміщено в архів'),
+          backgroundColor: Colors.orange,
+        ),
+      );
     } catch (error) {
-      if (mounted && isNetworkError(error)) {
-        setState(() => _isOffline = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Немає зв\'язку з інтернетом.'),
-            backgroundColor: Colors.redAccent,
+      if (!mounted) return;
+      setState(() => _isOffline = isNetworkError(error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isNetworkError(error)
+                ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
+                : '❌ Помилка: $error',
           ),
-        );
-      }
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -235,15 +228,14 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
     if (!confirmed || !mounted) return;
 
     try {
-      await _dashboardRepository.deleteDashboard(
+      // Read-Before-Write: репозиторій повертає свіжий список без видаленого.
+      final latest = await _dashboardRepository.deleteDashboard(
         user: widget.user,
         title: dashboard.title,
       );
       if (!mounted) return;
       setState(() {
-        _dashboards = _dashboards
-            .where((item) => item.title != dashboard.title)
-            .toList();
+        _dashboards = latest;
         _isOffline = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -253,15 +245,18 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
         ),
       );
     } catch (error) {
-      if (mounted) {
-        if (isNetworkError(error)) setState(() => _isOffline = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Помилка: $error'),
-            backgroundColor: Colors.redAccent,
+      if (!mounted) return;
+      setState(() => _isOffline = isNetworkError(error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isNetworkError(error)
+                ? '❌ Немає зв\'язку. Видалення дашборда потребує стабільного інтернету.'
+                : '❌ Помилка: $error',
           ),
-        );
-      }
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -272,67 +267,85 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
       newIndex -= 1;
     }
 
+    // Знімок поточного (кешованого) стану для відкату при помилці.
+    final previousDashboards = List<Dashboard>.from(_dashboards);
+
     final active = List<Dashboard>.from(_activeDashboards);
     final item = active.removeAt(oldIndex);
     active.insert(newIndex, item);
 
-    final updated = _mergeIncomeDashboards(
-      activeIncome: active,
-      archivedIncome: _archivedDashboards,
-    );
-
-    setState(() => _dashboards = updated);
+    // Оптимістично показуємо новий порядок одразу.
+    setState(() {
+      _dashboards = _mergeIncomeDashboards(
+        activeIncome: active,
+        archivedIncome: _archivedDashboards,
+      );
+    });
 
     try {
-      await _dashboardRepository.saveDashboards(
+      // Read-Before-Write: репозиторій застосовує порядок до свіжого хмарного списку.
+      final latest = await _dashboardRepository.reorderDashboards(
         user: widget.user,
-        dashboards: updated,
+        type: Dashboard.typeIncome,
+        orderedActiveTitles: active.map((dashboard) => dashboard.title).toList(),
       );
       if (!mounted) return;
-      setState(() => _isOffline = false);
+      setState(() {
+        _dashboards = latest;
+        _isOffline = false;
+      });
     } catch (error) {
-      if (mounted && isNetworkError(error)) {
-        setState(() => _isOffline = true);
-        await _loadDashboards();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Немає зв\'язку з інтернетом. Порядок не збережено.'),
-            backgroundColor: Colors.redAccent,
+      if (!mounted) return;
+      // Відкочуємо візуальний порядок до кешованого (до перетягування).
+      setState(() {
+        _dashboards = previousDashboards;
+        _isOffline = isNetworkError(error);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isNetworkError(error)
+                ? '❌ Потрібен інтернет. Порядок не збережено.'
+                : '❌ Помилка збереження порядку: $error',
           ),
-        );
-      }
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
   Future<void> _restoreDashboard(Dashboard dashboard) async {
-    final updated = _dashboards
-        .map(
-          (item) => item.title == dashboard.title && item.type == Dashboard.typeIncome
-              ? item.copyWith(isArchived: false)
-              : item,
-        )
-        .toList();
-
     try {
-      await _saveDashboards(updated);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ "${dashboard.title}" відновлено'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      // Read-Before-Write: оновлюємо запис у свіжому хмарному списку.
+      final latest = await _dashboardRepository.updateDashboard(
+        user: widget.user,
+        oldTitle: dashboard.title,
+        updatedDashboard: dashboard.copyWith(isArchived: false),
+      );
+      if (!mounted) return;
+      setState(() {
+        _dashboards = latest;
+        _isOffline = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ "${dashboard.title}" відновлено'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (error) {
-      if (mounted && isNetworkError(error)) {
-        setState(() => _isOffline = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Немає зв\'язку з інтернетом.'),
-            backgroundColor: Colors.redAccent,
+      if (!mounted) return;
+      setState(() => _isOffline = isNetworkError(error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isNetworkError(error)
+                ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
+                : '❌ Помилка: $error',
           ),
-        );
-      }
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 

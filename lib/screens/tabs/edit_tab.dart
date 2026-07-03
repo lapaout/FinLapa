@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../core/network_exception.dart';
 import '../../data/repositories/dashboard_repository.dart';
 import '../../data/repositories/sheet_records_repository.dart';
 import '../../models/dashboard.dart';
@@ -194,6 +195,8 @@ class _EditTabState extends State<EditTab> {
                             final oldName = widget.dashboard['title'];
 
                             try {
+                              // Read-Before-Write усередині repository: при offline
+                              // кидається виняток і хмарні дані не затираються.
                               await _saveDashboardConfig(
                                 oldName: oldName,
                                 newName: newName,
@@ -201,11 +204,21 @@ class _EditTabState extends State<EditTab> {
                                 newIcon: newIcon,
                                 newColor: newColor,
                               );
+                              if (context.mounted) Navigator.pop(context);
                             } catch (error) {
                               print('NETWORK ERROR [EditTab]: $error');
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    isNetworkError(error)
+                                        ? '❌ Немає зв\'язку. Зміна налаштувань дашборда потребує стабільного інтернету.'
+                                        : '❌ Помилка збереження: $error',
+                                  ),
+                                  backgroundColor: Colors.redAccent,
+                                ),
+                              );
                             }
-
-                            if (context.mounted) Navigator.pop(context);
                           },
                         ),
                       );
