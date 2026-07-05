@@ -69,6 +69,7 @@ class SheetRecordsRepository {
     required String sheetTitle,
     required List<String> values,
     List<String>? columns,
+    String? recordDateTime,
   }) async {
     try {
       List<String> resolvedColumns;
@@ -90,6 +91,7 @@ class SheetRecordsRepository {
         sheetName: sheetTitle,
         columns: resolvedColumns,
         values: values,
+        recordDateTime: recordDateTime,
       );
 
       final rows = await SheetsApi.readSheetData(

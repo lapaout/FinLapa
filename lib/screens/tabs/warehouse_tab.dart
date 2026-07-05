@@ -379,8 +379,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
         title: title,
         fields: fields,
         isSending: _isSending,
-        onSave: (valuesToSave, {extraFields}) async {
-          Navigator.pop(context);
+        onSave: (valuesToSave, {extraFields, recordDateTime}) async {
           setState(() => _isSending = true);
 
           try {
@@ -389,6 +388,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
               sheetTitle: title,
               columns: fields,
               values: valuesToSave,
+              recordDateTime: recordDateTime,
             );
 
             setState(() => _isOffline = false);

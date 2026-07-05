@@ -134,6 +134,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() => _linkedIncomeRecords = linkedRecords);
   }
 
+  DateTime? _parseDateSafely(String dateStr) {
+    DateTime? parsed = DateTime.tryParse(dateStr) ?? DateTime.tryParse('$dateStr:00');
+    if (parsed != null) return parsed;
+
+    try {
+      final cleanDate = dateStr.split(' ')[0];
+      final parts = cleanDate.split(RegExp(r'[\.\-\/]'));
+      if (parts.length >= 3) {
+        int day = int.parse(parts[0]);
+        int month = int.parse(parts[1]);
+        int year = int.parse(parts[2]);
+        if (year < 100) year += 2000;
+
+        return DateTime(year, month, day);
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
   void _applyFilter(String filter) {
     setState(() {
       _currentFilter = filter;
@@ -147,8 +167,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final now = DateTime.now();
       _filteredData = _allData.where((row) {
         if (row.isEmpty) return false;
-        final dateStr = row[0];
-        final rowDate = DateTime.tryParse("$dateStr:00");
+        final rowDate = _parseDateSafely(row[0]);
         if (rowDate == null) return false;
 
         if (filter == 'Сьогодні') {
@@ -184,10 +203,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _customDateRange = picked;
         _filteredData = _allData.where((row) {
           if (row.isEmpty) return false;
-          final rowDate = DateTime.tryParse("${row[0]}:00");
+          final rowDate = _parseDateSafely(row[0]);
           if (rowDate == null) return false;
-          return rowDate.isAfter(picked.start.subtract(const Duration(days: 1))) &&
-              rowDate.isBefore(picked.end.add(const Duration(days: 1)));
+
+          final start = picked.start.subtract(const Duration(seconds: 1));
+          final end = picked.end.add(const Duration(days: 1));
+
+          return rowDate.isAfter(start) && rowDate.isBefore(end);
         }).toList();
       });
     }

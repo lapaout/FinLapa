@@ -39,6 +39,12 @@ num parseWarehouseNum(String? value) {
   return num.tryParse(normalized) ?? 0;
 }
 
+String _formatFullDateTime(DateTime dateTime) {
+  String pad(int value) => value.toString().padLeft(2, '0');
+  return '${dateTime.year}-${pad(dateTime.month)}-${pad(dateTime.day)} '
+      '${pad(dateTime.hour)}:${pad(dateTime.minute)}:${pad(dateTime.second)}';
+}
+
 String normalizeWarehouseItemId(Object? value) {
   if (value == null) return '';
 
@@ -47,7 +53,7 @@ String normalizeWarehouseItemId(Object? value) {
 
   final parsed = DateTime.tryParse(trimmed) ?? DateTime.tryParse('$trimmed:00');
   if (parsed != null) {
-    return parsed.toString().substring(0, 16);
+    return _formatFullDateTime(parsed);
   }
 
   return trimmed;

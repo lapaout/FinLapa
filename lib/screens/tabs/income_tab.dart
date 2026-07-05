@@ -384,8 +384,7 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
         user: widget.user,
         dashboardRepository: _dashboardRepository,
         recordsRepository: _recordsRepository,
-        onSave: (valuesToSave, {extraFields}) async {
-          Navigator.pop(context);
+        onSave: (valuesToSave, {extraFields, recordDateTime}) async {
           setState(() => _isSending = true);
 
           final columns = List<String>.from(fields);
@@ -403,6 +402,7 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
               sheetTitle: title,
               columns: columns,
               values: values,
+              recordDateTime: recordDateTime,
             );
 
             setState(() => _isOffline = false);

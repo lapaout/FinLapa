@@ -287,12 +287,16 @@ class SheetsApi {
     required String sheetName,
     required List<String> columns,
     required List<dynamic> values,
+    String? recordDateTime,
   }) async {
     final authHeaders = await _authHeaders(user);
     final docId = await _requireActiveSpreadsheetId();
 
     final headers = ['Дата і час', ...columns];
-    final row = [DateTime.now().toString().substring(0, 16), ...values];
+    final row = [
+      recordDateTime ?? DateTime.now().toString().substring(0, 16),
+      ...values,
+    ];
 
     var success = await _appendDynamicRow(authHeaders, docId, sheetName, row);
     if (!success) {
