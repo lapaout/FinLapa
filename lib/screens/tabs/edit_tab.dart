@@ -136,12 +136,11 @@ class _EditTabState extends State<EditTab> {
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _color))
-          : ListView(
-              padding: const EdgeInsets.all(16.0),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (_isOffline)
                   Container(
-                    margin: const EdgeInsets.only(bottom: 16),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     color: Colors.redAccent.withOpacity(0.1),
                     child: const Row(
@@ -150,7 +149,7 @@ class _EditTabState extends State<EditTab> {
                         Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
                         SizedBox(width: 8),
                         Text(
-                          "Офлайн режим (тільки читання)",
+                          'Офлайн режим (тільки читання)',
                           style: TextStyle(
                             color: Colors.redAccent,
                             fontWeight: FontWeight.bold,
@@ -160,94 +159,105 @@ class _EditTabState extends State<EditTab> {
                       ],
                     ),
                   ),
-
-                const Text(
-                  "Налаштування модуля",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: _color,
-                      child: Icon(_icon, color: Colors.white),
-                    ),
-                    title: Text(_title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: const Text("Змінити назву, колір, значок або поля"),
-                    trailing: const Icon(Icons.settings_suggest, color: Colors.blueGrey),
-                    onTap: () {
-                      if (_isOffline) return;
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Налаштування модуля',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
                         ),
-                        builder: (context) => ModuleEditModal(
-                          initialDashboard: widget.dashboard,
-                          onSave: (newName, newFields, newIcon, newColor) async {
-                            final oldName = widget.dashboard['title'];
+                      ),
+                      const SizedBox(height: 10),
+                      Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: _color,
+                            child: Icon(_icon, color: Colors.white),
+                          ),
+                          title: Text(
+                            _title,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: const Text('Змінити назву, колір, значок або поля'),
+                          trailing: const Icon(Icons.settings_suggest, color: Colors.blueGrey),
+                          onTap: () {
+                            if (_isOffline) return;
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                              ),
+                              builder: (context) => ModuleEditModal(
+                                initialDashboard: widget.dashboard,
+                                onSave: (newName, newFields, newIcon, newColor) async {
+                                  final oldName = widget.dashboard['title'];
 
-                            try {
-                              // Read-Before-Write усередині repository: при offline
-                              // кидається виняток і хмарні дані не затираються.
-                              await _saveDashboardConfig(
-                                oldName: oldName,
-                                newName: newName,
-                                newFields: newFields,
-                                newIcon: newIcon,
-                                newColor: newColor,
-                              );
-                              if (context.mounted) Navigator.pop(context);
-                            } catch (error) {
-                              print('NETWORK ERROR [EditTab]: $error');
-                              if (!mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    isNetworkError(error)
-                                        ? '❌ Немає зв\'язку. Зміна налаштувань дашборда потребує стабільного інтернету.'
-                                        : '❌ Помилка збереження: $error',
-                                  ),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
-                            }
+                                  try {
+                                    await _saveDashboardConfig(
+                                      oldName: oldName,
+                                      newName: newName,
+                                      newFields: newFields,
+                                      newIcon: newIcon,
+                                      newColor: newColor,
+                                    );
+                                    if (context.mounted) Navigator.pop(context);
+                                  } catch (error) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          isNetworkError(error)
+                                              ? '❌ Немає зв\'язку. Зміна налаштувань дашборда потребує стабільного інтернету.'
+                                              : '❌ Помилка збереження: $error',
+                                        ),
+                                        backgroundColor: Colors.redAccent,
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                            );
                           },
                         ),
-                      );
-                    },
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'База записів',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                   ),
                 ),
-
-                const SizedBox(height: 30),
-
-                const Text(
-                  "База записів",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black54,
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: RecordsManager(
+                      user: widget.user,
+                      sheetName: _title,
+                      color: _color,
+                      headers: _headers,
+                      records: _recentRecords,
+                      isOffline: _isOffline,
+                      hideDateFeatures: _isWarehouse,
+                      onRecordUpdated: _updateLocalRecord,
+                      onRecordDeleted: (_) => _fetchData(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-
-                RecordsManager(
-                  user: widget.user,
-                  sheetName: _title,
-                  color: _color,
-                  headers: _headers,
-                  records: _recentRecords,
-                  isOffline: _isOffline,
-                  hideDateFeatures: _isWarehouse,
-                  onRecordUpdated: _updateLocalRecord,
-                  onRecordDeleted: (_) => _fetchData(),
                 ),
               ],
             ),

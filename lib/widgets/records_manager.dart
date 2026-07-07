@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+
 import '../core/ui_field_filter.dart';
 import '../core/warehouse_analytics.dart';
 import '../data/repositories/sheet_records_repository.dart';
@@ -35,37 +38,111 @@ class RecordsManager extends StatefulWidget {
 
 class _RecordsManagerState extends State<RecordsManager> {
   final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
+  late final TextEditingController _searchController;
 
   String _searchQuery = '';
   bool _isUpdating = false;
-  
-  // Нові змінні для розумної фільтрації за датами
   String _dateFilter = 'Всі';
   DateTimeRange? _customDateRange;
-// РОЗУМНИЙ ПАРСЕР ДАТ (Захист від ручного редагування в Екселі)
+  final ValueNotifier<List<Map<String, dynamic>>> _filteredRecordsNotifier =
+      ValueNotifier([]);
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _filteredRecordsNotifier.value = _computeFilteredRecords();
+  }
+
+  @override
+  void didUpdateWidget(covariant RecordsManager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.records != widget.records) {
+      _filteredRecordsNotifier.value = _computeFilteredRecords();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    _filteredRecordsNotifier.dispose();
+    super.dispose();
+  }
+
+  void _refreshFilteredRecords() {
+    _filteredRecordsNotifier.value = _computeFilteredRecords();
+  }
+
+  void _onSearchChanged(String value) {
+    _searchQuery = value.trim().toLowerCase();
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _refreshFilteredRecords();
+    });
+  }
+
   DateTime? _parseDateSafely(String dateStr) {
-    // 1. Спочатку пробуємо наш стандартний машинний формат (2026-06-18 12:30)
-    DateTime? d = DateTime.tryParse(dateStr) ?? DateTime.tryParse("$dateStr:00");
+    DateTime? d = DateTime.tryParse(dateStr) ?? DateTime.tryParse('$dateStr:00');
     if (d != null) return d;
 
-    // 2. Якщо ти відредагував дату руками в Google Sheets (наприклад: 14.06.2026)
     try {
-      final cleanDate = dateStr.split(' ')[0]; // Відрізаємо час, якщо він є
-      final parts = cleanDate.split(RegExp(r'[\.\-\/]')); // Ділимо по крапках або рисках
+      final cleanDate = dateStr.split(' ')[0];
+      final parts = cleanDate.split(RegExp(r'[\.\-\/]'));
       if (parts.length >= 3) {
         int day = int.parse(parts[0]);
         int month = int.parse(parts[1]);
         int year = int.parse(parts[2]);
-        if (year < 100) year += 2000; // Якщо раптом ввів 14.06.26
-        
+        if (year < 100) year += 2000;
+
         return DateTime(year, month, day);
       }
-    } catch (e) {
-      // Якщо в комірці взагалі написана якась нісенітниця, ігноруємо
-    }
-    
-    return null; // Якщо дату неможливо розпізнати
+    } catch (_) {}
+
+    return null;
   }
+
+  bool _matchesDateFilter(List<String> rowData) {
+    if (widget.hideDateFeatures || _dateFilter == 'Всі') return true;
+    if (rowData.isEmpty) return false;
+
+    final rowDate = _parseDateSafely(rowData[0]);
+    if (rowDate == null) return false;
+
+    final now = DateTime.now();
+    if (_dateFilter == 'Сьогодні') {
+      return rowDate.year == now.year &&
+          rowDate.month == now.month &&
+          rowDate.day == now.day;
+    } else if (_dateFilter == 'Місяць') {
+      return rowDate.year == now.year && rowDate.month == now.month;
+    } else if (_dateFilter == 'Період' && _customDateRange != null) {
+      final start = _customDateRange!.start.subtract(const Duration(seconds: 1));
+      final end = _customDateRange!.end.add(const Duration(days: 1));
+      return rowDate.isAfter(start) && rowDate.isBefore(end);
+    }
+    return true;
+  }
+
+  List<Map<String, dynamic>> _computeFilteredRecords() {
+    if (_searchQuery.isEmpty && (widget.hideDateFeatures || _dateFilter == 'Всі')) {
+      return List<Map<String, dynamic>>.from(widget.records);
+    }
+
+    return widget.records.where((item) {
+      final rowData = item['row'] as List<String>;
+
+      if (_searchQuery.isNotEmpty) {
+        final combinedText = rowData.join(' ').toLowerCase();
+        if (!combinedText.contains(_searchQuery)) return false;
+      }
+
+      return _matchesDateFilter(rowData);
+    }).toList();
+  }
+
   void _openEditModal(
     BuildContext context,
     Map<String, dynamic> item,
@@ -232,6 +309,145 @@ class _RecordsManagerState extends State<RecordsManager> {
     }
   }
 
+  Future<void> _selectCustomDateRange() async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) => Theme(
+        data: ThemeData.light().copyWith(
+          colorScheme: ColorScheme.light(primary: widget.color),
+        ),
+        child: child!,
+      ),
+    );
+
+    if (picked != null) {
+      setState(() {
+        _dateFilter = 'Період';
+        _customDateRange = picked;
+      });
+      _refreshFilteredRecords();
+    }
+  }
+
+  Widget _buildFilterChip(String label) {
+    final isSelected = _dateFilter == label;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      selectedColor: widget.color,
+      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontSize: 13),
+      side: BorderSide(color: widget.color.withOpacity(0.4)),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+      onSelected: (bool selected) {
+        if (selected) {
+          setState(() {
+            _dateFilter = label;
+            _customDateRange = null;
+          });
+          _refreshFilteredRecords();
+        }
+      },
+    );
+  }
+
+  Widget _buildRecordTile(Map<String, dynamic> item) {
+    final rowIndex = item['rowIndex'] as int;
+    final row = item['row'] as List<String>;
+
+    final fieldWidgets = <Widget>[];
+    final headerIndexes = widget.hideDateFeatures
+        ? List.generate(widget.headers.length - 1, (i) => i + 1)
+        : [1, 2, 3].where((i) => i < widget.headers.length).toList();
+
+    for (final i in headerIndexes) {
+      if (i < widget.headers.length && i < row.length) {
+        final headerName = widget.headers[i];
+        if (isHiddenUiField(headerName)) continue;
+        if (isWarehouseLinkedDisplayField(headerName)) continue;
+
+        String value = row[i];
+        final headerLower = headerName.toLowerCase();
+
+        final isMoney = headerLower.contains('сум') ||
+            headerLower.contains('цін') ||
+            headerLower.contains('варт');
+
+        if (isMoney && value.isNotEmpty && value != '-') {
+          value = '$value ₴';
+        }
+
+        fieldWidgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    '$headerName:',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontWeight: i == 1 || isMoney ? FontWeight.bold : FontWeight.w600,
+                      fontSize: i == 1 || isMoney ? 16 : 15,
+                      color: isMoney ? Colors.green.shade700 : Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    return RepaintBoundary(
+      child: Card(
+        key: ValueKey('${rowIndex}_${row.join('_')}'),
+        elevation: 1,
+        margin: const EdgeInsets.only(bottom: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _openEditModal(context, item, rowIndex, row),
+          child: Padding(
+            padding: const EdgeInsets.all(14.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildWarehouseSaleInfo(row),
+                      ...fieldWidgets,
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _confirmAndDelete(context, rowIndex),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildWarehouseSaleInfo(List<String> row) {
     final warehouseItemRaw = fieldValueFromRow(
       widget.headers,
@@ -292,68 +508,11 @@ class _RecordsManagerState extends State<RecordsManager> {
     );
   }
 
-  // Метод для відкриття календаря (вибір кастомного періоду)
-  Future<void> _selectCustomDateRange() async {
-    final DateTimeRange? picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      builder: (context, child) => Theme(
-        data: ThemeData.light().copyWith(colorScheme: ColorScheme.light(primary: widget.color)),
-        child: child!,
-      ),
-    );
-
-    if (picked != null) {
-      setState(() {
-        _dateFilter = 'Період';
-        _customDateRange = picked;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    // КОМБІНОВАНИЙ РОЗУМНИЙ ФІЛЬТР (Пошук + Календар)
-    // КОМБІНОВАНИЙ РОЗУМНИЙ ФІЛЬТР (Пошук + Календар)
-    final filteredRecords = widget.records.where((item) {
-      final rowData = item['row'] as List<String>;
-      
-      // 1. Фільтрація за текстом у пошуку
-      final combinedText = rowData.join(' ').toLowerCase();
-      final matchesText = combinedText.contains(_searchQuery.toLowerCase());
-      if (!matchesText) return false;
-
-      // 2. Фільтрація за обраною датою
-      if (widget.hideDateFeatures || _dateFilter == 'Всі') return true;
-      if (rowData.isEmpty) return false;
-
-      final dateStr = rowData[0]; 
-      
-      // ВИКОРИСТОВУЄМО НАШ НОВИЙ БРОНЕЖИЛЕТ ДЛЯ ДАТ
-      final rowDate = _parseDateSafely(dateStr); 
-      if (rowDate == null) return false;
-
-      final now = DateTime.now();
-      if (_dateFilter == 'Сьогодні') {
-        return rowDate.year == now.year && rowDate.month == now.month && rowDate.day == now.day;
-      } else if (_dateFilter == 'Місяць') {
-        return rowDate.year == now.year && rowDate.month == now.month;
-      } else if (_dateFilter == 'Період' && _customDateRange != null) {
-        
-        // ВИПРАВЛЕНИЙ БАГ ДІАПАЗОНУ (18 по 18)
-        final start = _customDateRange!.start.subtract(const Duration(seconds: 1)); // Починаємо з 23:59:59 попереднього дня
-        final end = _customDateRange!.end.add(const Duration(days: 1)); // Захоплюємо весь останній день до 00:00 наступного
-        
-        return rowDate.isAfter(start) && rowDate.isBefore(end);
-      }
-      return true;
-    }).toList();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // --- ПАНЕЛЬ КЛІК КЛУБІВ (ФІЛЬТРИ ДАТ) ---
         if (!widget.hideDateFeatures)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -367,10 +526,22 @@ class _RecordsManagerState extends State<RecordsManager> {
                 _buildFilterChip('Місяць'),
                 const SizedBox(width: 6),
                 ActionChip(
-                  avatar: Icon(Icons.calendar_month, size: 16, color: _dateFilter == 'Період' ? Colors.white : widget.color),
-                  label: Text(_customDateRange == null ? 'Період' : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - ${_customDateRange!.end.day}.${_customDateRange!.end.month}'),
+                  avatar: Icon(
+                    Icons.calendar_month,
+                    size: 16,
+                    color: _dateFilter == 'Період' ? Colors.white : widget.color,
+                  ),
+                  label: Text(
+                    _customDateRange == null
+                        ? 'Період'
+                        : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - '
+                            '${_customDateRange!.end.day}.${_customDateRange!.end.month}',
+                  ),
                   backgroundColor: _dateFilter == 'Період' ? widget.color : Colors.white,
-                  labelStyle: TextStyle(color: _dateFilter == 'Період' ? Colors.white : Colors.black87, fontSize: 13),
+                  labelStyle: TextStyle(
+                    color: _dateFilter == 'Період' ? Colors.white : Colors.black87,
+                    fontSize: 13,
+                  ),
                   side: BorderSide(color: widget.color.withOpacity(0.4)),
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
                   onPressed: _selectCustomDateRange,
@@ -378,140 +549,62 @@ class _RecordsManagerState extends State<RecordsManager> {
               ],
             ),
           ),
-
-        // --- ПОЛЕ ПОШУКУ ---
         TextField(
+          controller: _searchController,
           decoration: InputDecoration(
             hintText: 'Пошук серед відфільтрованого...',
             prefixIcon: Icon(Icons.search, color: widget.color),
             filled: true,
             fillColor: Colors.white,
             contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: widget.color, width: 2)),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: widget.color, width: 2),
+            ),
           ),
-          onChanged: (val) => setState(() => _searchQuery = val),
+          onChanged: _onSearchChanged,
         ),
         const SizedBox(height: 16),
-
         if (_isUpdating)
-          Center(child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: CircularProgressIndicator(color: widget.color),
-          )),
-
-        // --- СПИСОК ЗАПИСІВ ---
-        if (filteredRecords.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(24.0),
-            child: Center(child: Text("Записів не знайдено за цими критеріями", style: TextStyle(color: Colors.grey, fontSize: 15))),
-          )
-        else
-          ...filteredRecords.map((item) {
-            final rowIndex = item['rowIndex'] as int;
-            final row = item['row'] as List<String>;
-
-            List<Widget> fieldWidgets = [];
-            final headerIndexes = widget.hideDateFeatures
-                ? List.generate(widget.headers.length - 1, (i) => i + 1)
-                : [1, 2, 3].where((i) => i < widget.headers.length).toList();
-
-            for (final i in headerIndexes) {
-              if (i < widget.headers.length && i < row.length) {
-                final headerName = widget.headers[i];
-                if (isHiddenUiField(headerName)) continue;
-                if (isWarehouseLinkedDisplayField(headerName)) continue;
-
-                String value = row[i];
-                final headerLower = headerName.toLowerCase();
-
-                final isMoney = headerLower.contains('сум') ||
-                    headerLower.contains('цін') ||
-                    headerLower.contains('варт');
-
-                if (isMoney && value.isNotEmpty && value != '-') {
-                  value = '$value ₴';
-                }
-
-                fieldWidgets.add(
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(flex: 2, child: Text("$headerName:", style: const TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w500))),
-                        Expanded(
-                          flex: 3,
-                          child: Text(
-                            value,
-                            style: TextStyle(
-                              fontWeight: i == 1 || isMoney ? FontWeight.bold : FontWeight.w600,
-                              fontSize: i == 1 || isMoney ? 16 : 15,
-                              color: isMoney ? Colors.green.shade700 : Colors.black87,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(color: widget.color),
+            ),
+          ),
+        Expanded(
+          child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+            valueListenable: _filteredRecordsNotifier,
+            builder: (context, filteredRecords, _) {
+              if (filteredRecords.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Записів не знайдено за цими критеріями',
+                    style: TextStyle(color: Colors.grey, fontSize: 15),
                   ),
                 );
               }
-            }
 
-            return Card(
-              key: ValueKey('${rowIndex}_${row.join('_')}'),
-              elevation: 1,
-              margin: const EdgeInsets.only(bottom: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () => _openEditModal(context, item, rowIndex, row),
-                child: Padding(
-                  padding: const EdgeInsets.all(14.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildWarehouseSaleInfo(row),
-                            ...fieldWidgets,
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => _confirmAndDelete(context, rowIndex),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
+              return ListView.builder(
+                itemCount: filteredRecords.length,
+                cacheExtent: 500,
+                addAutomaticKeepAlives: false,
+                itemBuilder: (context, index) {
+                  return _buildRecordTile(filteredRecords[index]);
+                },
+              );
+            },
+          ),
+        ),
       ],
-    );
-  }
-
-  Widget _buildFilterChip(String label) {
-    final isSelected = _dateFilter == label;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      selectedColor: widget.color,
-      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontSize: 13),
-      side: BorderSide(color: widget.color.withOpacity(0.4)),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-      onSelected: (bool selected) {
-        if (selected) {
-          setState(() {
-            _dateFilter = label;
-            _customDateRange = null; // Скидаємо кастомні дати, якщо обрали швидкий фільтр
-          });
-        }
-      },
     );
   }
 }

@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-import '../core/ui_field_filter.dart';
+import '../core/history_date_filter.dart';
+import '../core/linked_income_loader.dart';
 import '../core/warehouse_analytics.dart';
 import '../core/warehouse_sales_index.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
 import '../models/sheet_record.dart';
+import '../widgets/history_record_card.dart';
 import '../widgets/warehouse_item_card.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -38,9 +40,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   bool _isLoading = true;
   bool _isOffline = false;
-  List<List<String>> _allData = [];
-  List<List<String>> _filteredData = [];
   List<SheetRecord> _records = [];
+  List<SheetRecord> _filteredRecords = [];
   List<LinkedIncomeRecord> _linkedIncomeRecords = [];
   List<String> _headers = [];
 
@@ -62,6 +63,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void initState() {
     super.initState();
     _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _records = [];
+    _filteredRecords = [];
+    _linkedIncomeRecords = [];
+    _headers = [];
+    _warehouseStatsCache = WarehouseStatsCache.empty;
+    super.dispose();
   }
 
   Future<void> _fetchData() async {
@@ -92,15 +103,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _isOffline = result.isOffline;
       _headers = headers;
       _records = result.data;
-      _allData = SheetRecordsRepository.recordsToDisplayRows(result.data);
-      _filteredData = List.from(_allData);
       _warehouseStatsCache = warehouseStatsCache;
-      _totalAmountCache = _computeTotalAmount(_filteredData);
+      _recomputeFilteredRecords();
       _isLoading = false;
     });
 
+    if (!mounted) return;
+
     if (result.isOffline) {
-      if (_allData.isNotEmpty) {
+      if (_records.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('⚠️ Офлайн: Показано записи з кешу'),
@@ -120,92 +131,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _loadLinkedIncomeRecords() async {
-    final dashboardsResult = await _dashboardRepository.getDashboards(user: widget.user);
-    final linkedIncomeDashboards = dashboardsResult.data
-        .where(
-          (dashboard) =>
-              dashboard.type == Dashboard.typeIncome && dashboard.isWarehouseLinked,
-        )
-        .toList();
-
-    final linkedRecords = <LinkedIncomeRecord>[];
-
-    for (final dashboard in linkedIncomeDashboards) {
-      final result = await _recordsRepository.getRecords(
-        user: widget.user,
-        sheetTitle: dashboard.title,
-      );
-      final headers = await _recordsRepository.getSheetHeaders(dashboard.title);
-
-      for (final record in result.data) {
-        linkedRecords.add(
-          LinkedIncomeRecord(record: record, headers: headers),
-        );
-      }
-    }
+    final linkedRecords = await loadLinkedIncomeRecords(
+      user: widget.user,
+      dashboardRepository: _dashboardRepository,
+      recordsRepository: _recordsRepository,
+    );
 
     if (!mounted) return;
     setState(() => _linkedIncomeRecords = linkedRecords);
   }
 
-  DateTime? _parseDateSafely(String dateStr) {
-    DateTime? parsed = DateTime.tryParse(dateStr) ?? DateTime.tryParse('$dateStr:00');
-    if (parsed != null) return parsed;
-
-    try {
-      final cleanDate = dateStr.split(' ')[0];
-      final parts = cleanDate.split(RegExp(r'[\.\-\/]'));
-      if (parts.length >= 3) {
-        int day = int.parse(parts[0]);
-        int month = int.parse(parts[1]);
-        int year = int.parse(parts[2]);
-        if (year < 100) year += 2000;
-
-        return DateTime(year, month, day);
-      }
-    } catch (_) {}
-
-    return null;
-  }
-
-  num _computeTotalAmount(List<List<String>> rows) {
-    num total = 0;
-    for (final row in rows) {
-      final amount = _amountForRow(row);
-      if (amount != null) total += amount;
-    }
-    return total;
+  void _recomputeFilteredRecords() {
+    _filteredRecords = HistoryDateFilter.filterRecords(
+      records: _records,
+      filter: _currentFilter,
+      customRange: _customDateRange,
+    );
+    _totalAmountCache = HistoryRecordCard.totalAmountForRecords(_filteredRecords);
   }
 
   void _applyFilter(String filter) {
     setState(() {
       _currentFilter = filter;
       _customDateRange = null;
-
-      if (filter == 'Всі') {
-        _filteredData = List.from(_allData);
-        _totalAmountCache = _computeTotalAmount(_filteredData);
-        return;
-      }
-
-      final now = DateTime.now();
-      _filteredData = _allData.where((row) {
-        if (row.isEmpty) return false;
-        final rowDate = _parseDateSafely(row[0]);
-        if (rowDate == null) return false;
-
-        if (filter == 'Сьогодні') {
-          return rowDate.year == now.year &&
-              rowDate.month == now.month &&
-              rowDate.day == now.day;
-        } else if (filter == 'Тиждень') {
-          return now.difference(rowDate).inDays <= 7;
-        } else if (filter == 'Місяць') {
-          return rowDate.year == now.year && rowDate.month == now.month;
-        }
-        return true;
-      }).toList();
-      _totalAmountCache = _computeTotalAmount(_filteredData);
+      _recomputeFilteredRecords();
     });
   }
 
@@ -226,64 +175,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       setState(() {
         _currentFilter = 'Період';
         _customDateRange = picked;
-        _filteredData = _allData.where((row) {
-          if (row.isEmpty) return false;
-          final rowDate = _parseDateSafely(row[0]);
-          if (rowDate == null) return false;
-
-          final start = picked.start.subtract(const Duration(seconds: 1));
-          final end = picked.end.add(const Duration(days: 1));
-
-          return rowDate.isAfter(start) && rowDate.isBefore(end);
-        }).toList();
-        _totalAmountCache = _computeTotalAmount(_filteredData);
+        _recomputeFilteredRecords();
       });
     }
-  }
-
-  Map<String, String> _fieldsForRow(List<String> row) {
-    final map = <String, String>{};
-    for (var i = 1; i < _headers.length && i < row.length; i++) {
-      map[_headers[i]] = row[i];
-    }
-    return map;
-  }
-
-  bool _isAmountHeader(String header) {
-    final normalized = header.toLowerCase();
-    return normalized.contains('сум') || normalized.contains('amount');
-  }
-
-  bool _isHiddenHistoryHeader(String header) {
-    if (isHiddenUiField(header)) return true;
-    return header == 'Продано (шт)' || header == 'Товар зі складу';
-  }
-
-  String? _warehouseField(Map<String, String> fields, String newKey, String oldKey) {
-    final newValue = fields[newKey]?.trim();
-    if (newValue != null && newValue.isNotEmpty) {
-      return newValue;
-    }
-    return fields[oldKey]?.trim();
-  }
-
-  num? _amountForRow(List<String> row) {
-    final record = SheetRecord.fromValues(values: row);
-    final nativeAmount = record.amount;
-    if (nativeAmount != null && nativeAmount > 0) {
-      return nativeAmount;
-    }
-
-    if (row.length > 1) {
-      final normalized =
-          row[1].replaceAll(' ', '').replaceAll(',', '.').replaceAll(RegExp(r'[^\d.-]'), '');
-      final parsed = num.tryParse(normalized);
-      if (parsed != null && parsed > 0) {
-        return parsed;
-      }
-    }
-
-    return null;
   }
 
   WarehouseStats _statsForItem(SheetRecord item) {
@@ -314,111 +208,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return parts.length > 1 ? '$grouped.${parts[1]}' : grouped;
   }
 
-  Widget _buildRecordCard(List<String> row) {
-    final fields = _fieldsForRow(row);
-    final warehouseItemName =
-        _warehouseField(fields, 'Товар зі складу', '_warehouseItemName');
-    final soldQuantity = _warehouseField(fields, 'Продано (шт)', '_soldQuantity');
-    final hasWarehouseSale = warehouseItemName != null &&
-        warehouseItemName.isNotEmpty &&
-        soldQuantity != null &&
-        soldQuantity.isNotEmpty;
-    final displayAmount = _amountForRow(row);
-
-    return Card(
-      elevation: 1,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
-                const SizedBox(width: 6),
-                Text(
-                  row.isNotEmpty ? row[0] : 'Без дати',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-            const Divider(),
-            if (hasWarehouseSale)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  '📦 Товар: $warehouseItemName | Продано: $soldQuantity шт.',
-                  style: TextStyle(
-                    color: Colors.teal.shade700,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            if (displayAmount != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  '💰 Сума: $displayAmount ₴',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                ),
-              ),
-            ...List.generate(_headers.length - 1, (i) {
-              final colIndex = i + 1;
-              final header = _headers.length > colIndex ? _headers[colIndex] : 'Поле';
-              final value = colIndex < row.length ? row[colIndex].trim() : '-';
-
-              if (_isHiddenHistoryHeader(header)) {
-                return const SizedBox.shrink();
-              }
-
-              if (value.isEmpty || value == '-') {
-                return const SizedBox.shrink();
-              }
-
-              if (_isAmountHeader(header)) {
-                return const SizedBox.shrink();
-              }
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        "$header:",
-                        style: const TextStyle(color: Colors.black54, fontSize: 14),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        value,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildWarehouseInventoryList() {
     if (_records.isEmpty) {
       return const Center(
         child: Text(
-          "Товарів ще немає",
+          'Товарів ще немає',
           style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
       );
@@ -427,32 +221,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _records.length,
+      addAutomaticKeepAlives: false,
+      cacheExtent: 500,
       itemBuilder: (context, index) {
         final item = _records[index];
-        return WarehouseItemCard(
-          item: item,
-          dashboard: _warehouseDashboard,
-          stats: _statsForItem(item),
-          accentColor: widget.dashboardColor,
+        return RepaintBoundary(
+          child: WarehouseItemCard(
+            item: item,
+            dashboard: _warehouseDashboard,
+            stats: _statsForItem(item),
+            accentColor: widget.dashboardColor,
+          ),
         );
       },
     );
   }
 
   Widget _buildTransactionHistoryList() {
-    if (_allData.isEmpty) {
+    if (_records.isEmpty) {
       return const Center(
         child: Text(
-          "Записів ще немає",
+          'Записів ще немає',
           style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
       );
     }
 
-    if (_filteredData.isEmpty) {
+    if (_filteredRecords.isEmpty) {
       return const Center(
         child: Text(
-          "За обраний період записів не знайдено",
+          'За обраний період записів не знайдено',
           style: TextStyle(color: Colors.grey),
         ),
       );
@@ -460,12 +258,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _filteredData.length,
-      itemBuilder: (context, index) => _buildRecordCard(_filteredData[index]),
+      itemCount: _filteredRecords.length,
+      addAutomaticKeepAlives: false,
+      cacheExtent: 500,
+      itemBuilder: (context, index) {
+        final record = _filteredRecords[index];
+        return HistoryRecordCard(
+          key: ValueKey(record.rowIndex ?? index),
+          headers: _headers,
+          row: record.values,
+        );
+      },
     );
   }
 
-  /// Плашка "Загальна сума" для звичайних дашбордів (Доходи / Витрати).
   Widget _buildTotalAmountBanner() {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -538,7 +344,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  /// Сумарна плашка для всього складського дашборда (3 показники + прибуток).
   Widget _buildWarehouseStatsBanner() {
     final totals = _warehouseStatsCache.totals;
     final spent = totals['spent'] ?? 0;
@@ -602,7 +407,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  /// Смужка "Прибуток" = Зароблено − Витрачено з кольоровою індикацією.
   Widget _buildProfitBar(num profit) {
     final Color profitColor;
     final IconData profitIcon;
@@ -734,7 +538,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
                   SizedBox(width: 8),
                   Text(
-                    "Офлайн режим (тільки читання)",
+                    'Офлайн режим (тільки читання)',
                     style: TextStyle(
                       color: Colors.redAccent,
                       fontWeight: FontWeight.bold,
@@ -744,13 +548,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ],
               ),
             ),
-
           if (widget.isWarehouse && !_isLoading && _records.isNotEmpty)
             _buildWarehouseStatsBanner(),
-
-          if (!widget.isWarehouse && !_isLoading && _allData.isNotEmpty)
+          if (!widget.isWarehouse && !_isLoading && _records.isNotEmpty)
             _buildTotalAmountBanner(),
-
           if (!widget.isWarehouse)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -787,7 +588,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       label: Text(
                         _customDateRange == null
                             ? 'Період'
-                            : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - ${_customDateRange!.end.day}.${_customDateRange!.end.month}',
+                            : '${_customDateRange!.start.day}.${_customDateRange!.start.month} - '
+                                '${_customDateRange!.end.day}.${_customDateRange!.end.month}',
                       ),
                       backgroundColor:
                           _currentFilter == 'Період' ? widget.dashboardColor : Colors.white,
@@ -801,7 +603,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ),
-
           Expanded(
             child: _isLoading
                 ? Center(child: CircularProgressIndicator(color: widget.dashboardColor))

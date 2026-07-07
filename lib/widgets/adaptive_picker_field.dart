@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 class PickerOption<T> {
@@ -72,9 +74,9 @@ class AdaptivePickerField<T> extends StatelessWidget {
       );
     }
 
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onChanged == null ? null : () => _openSearchSheet(context),
-      borderRadius: BorderRadius.circular(4),
       child: InputDecorator(
         decoration: decoration.copyWith(
           suffixIcon: const Icon(Icons.arrow_drop_down),
@@ -127,18 +129,31 @@ class _SearchPickerSheet<T> extends StatefulWidget {
 
 class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
   final TextEditingController _searchController = TextEditingController();
-  String _query = '';
+  final FocusNode _searchFocusNode = FocusNode();
+  late final ValueNotifier<List<PickerOption<T>>> _visibleOptionsNotifier;
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _visibleOptionsNotifier = ValueNotifier(
+      List<PickerOption<T>>.from(widget.options),
+    );
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
+    _visibleOptionsNotifier.dispose();
     super.dispose();
   }
 
-  List<PickerOption<T>> get _filteredOptions {
-    final normalizedQuery = _query.trim().toLowerCase();
+  List<PickerOption<T>> _computeVisibleOptions(String query) {
+    final normalizedQuery = query.trim().toLowerCase();
     if (normalizedQuery.isEmpty) {
-      return widget.options;
+      return List<PickerOption<T>>.from(widget.options);
     }
 
     return widget.options
@@ -148,44 +163,58 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
         .toList();
   }
 
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _visibleOptionsNotifier.value = _computeVisibleOptions(value);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final filteredOptions = _filteredOptions;
+    final sheetHeight = MediaQuery.sizeOf(context).height * 0.55;
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: TextField(
-                controller: _searchController,
-                autofocus: false,
-                decoration: InputDecoration(
-                  hintText: widget.hintText ?? 'Пошук...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: const OutlineInputBorder(),
+        child: SizedBox(
+          height: sheetHeight,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  autofocus: false,
+                  decoration: InputDecoration(
+                    hintText: widget.hintText ?? 'Пошук...',
+                    prefixIcon: const Icon(Icons.search),
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: _onSearchChanged,
                 ),
-                onChanged: (value) => setState(() => _query = value),
               ),
-            ),
-            Flexible(
-              child: filteredOptions.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'Нічого не знайдено',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: filteredOptions.length,
+              Expanded(
+                child: ValueListenableBuilder<List<PickerOption<T>>>(
+                  valueListenable: _visibleOptionsNotifier,
+                  builder: (context, visibleOptions, _) {
+                    if (visibleOptions.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'Нічого не знайдено',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      itemCount: visibleOptions.length,
+                      addAutomaticKeepAlives: false,
                       itemBuilder: (context, index) {
-                        final option = filteredOptions[index];
+                        final option = visibleOptions[index];
                         return ListTile(
                           title: Text(
                             option.label,
@@ -199,9 +228,12 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                           },
                         );
                       },
-                    ),
-            ),
-          ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

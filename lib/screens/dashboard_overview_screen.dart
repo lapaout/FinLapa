@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../core/linked_income_loader.dart';
 import '../core/ui_field_filter.dart';
 import '../core/warehouse_analytics.dart';
 import '../core/warehouse_sales_index.dart';
@@ -59,6 +60,16 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     _fetchData();
   }
 
+  @override
+  void dispose() {
+    _records = [];
+    _allData = [];
+    _linkedIncomeRecords = [];
+    _headers = [];
+    _warehouseStatsCache = WarehouseStatsCache.empty;
+    super.dispose();
+  }
+
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
 
@@ -97,29 +108,11 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   }
 
   Future<void> _loadLinkedIncomeRecords() async {
-    final dashboardsResult = await _dashboardRepository.getDashboards(user: widget.user);
-    final linkedIncomeDashboards = dashboardsResult.data
-        .where(
-          (dashboard) =>
-              dashboard.type == Dashboard.typeIncome && dashboard.isWarehouseLinked,
-        )
-        .toList();
-
-    final linkedRecords = <LinkedIncomeRecord>[];
-
-    for (final dashboard in linkedIncomeDashboards) {
-      final result = await _recordsRepository.getRecords(
-        user: widget.user,
-        sheetTitle: dashboard.title,
-      );
-      final headers = await _recordsRepository.getSheetHeaders(dashboard.title);
-
-      for (final record in result.data) {
-        linkedRecords.add(
-          LinkedIncomeRecord(record: record, headers: headers),
-        );
-      }
-    }
+    final linkedRecords = await loadLinkedIncomeRecords(
+      user: widget.user,
+      dashboardRepository: _dashboardRepository,
+      recordsRepository: _recordsRepository,
+    );
 
     if (!mounted) return;
     setState(() => _linkedIncomeRecords = linkedRecords);
@@ -442,34 +435,107 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     );
   }
 
-  Widget _buildDataTable() {
-    if (_allData.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
-        child: Center(
-          child: Text(
-            'Записів ще немає',
-            style: TextStyle(color: Colors.grey, fontSize: 16),
-          ),
-        ),
-      );
+  static const double _tableRowHeight = 48;
+  static const double _tableColumnWidth = 140;
+
+  List<int> _visibleColumnIndexes() {
+    if (_headers.isNotEmpty) {
+      return List.generate(_headers.length, (i) => i)
+          .where((i) => !isHiddenUiField(_headers[i]))
+          .toList();
     }
 
-    final visibleIndexes = _headers.isNotEmpty
-        ? List.generate(_headers.length, (i) => i)
-            .where((i) => !isHiddenUiField(_headers[i]))
-            .toList()
-        : List.generate(
-            _allData.map((r) => r.length).fold(0, (a, b) => a > b ? a : b),
-            (i) => i,
-          );
+    final columnCount = _allData.fold<int>(
+      0,
+      (maxColumns, row) => row.length > maxColumns ? row.length : maxColumns,
+    );
+    return List.generate(columnCount, (i) => i);
+  }
 
-    final columns = visibleIndexes.map((i) {
+  List<String> _columnLabels(List<int> visibleIndexes) {
+    return visibleIndexes.map((i) {
       if (_headers.isNotEmpty && i < _headers.length) {
         return _headers[i];
       }
       return 'Колонка ${i + 1}';
     }).toList();
+  }
+
+  Widget _buildTableHeaderRow(List<String> columns) {
+    return Container(
+      height: _tableRowHeight,
+      color: widget.dashboardColor.withOpacity(0.08),
+      child: Row(
+        children: columns
+            .map(
+              (header) => SizedBox(
+                width: _tableColumnWidth,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      header,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildTableDataRow(List<String> row, List<int> visibleIndexes) {
+    return Container(
+      height: _tableRowHeight,
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      child: Row(
+        children: visibleIndexes.map((colIndex) {
+          final value = colIndex < row.length ? row[colIndex] : '';
+          return SizedBox(
+            width: _tableColumnWidth,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value.isEmpty ? '—' : value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildDataTable() {
+    if (_allData.isEmpty) {
+      return const Center(
+        child: Text(
+          'Записів ще немає',
+          style: TextStyle(color: Colors.grey, fontSize: 16),
+        ),
+      );
+    }
+
+    final visibleIndexes = _visibleColumnIndexes();
+    final columns = _columnLabels(visibleIndexes);
+    final tableWidth = columns.length * _tableColumnWidth;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -487,40 +553,36 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
               ),
             ),
           ),
-          Card(
-            elevation: 1,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            clipBehavior: Clip.antiAlias,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
+          Expanded(
+            child: Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              clipBehavior: Clip.antiAlias,
               child: SingleChildScrollView(
-                child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(
-                    widget.dashboardColor.withOpacity(0.08),
-                  ),
-                  columns: columns
-                      .map(
-                        (header) => DataColumn(
-                          label: Text(
-                            header,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: tableWidth,
+                  child: Column(
+                    children: [
+                      _buildTableHeaderRow(columns),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _allData.length,
+                          itemExtent: _tableRowHeight,
+                          cacheExtent: 500,
+                          addAutomaticKeepAlives: false,
+                          itemBuilder: (context, index) {
+                            return RepaintBoundary(
+                              child: _buildTableDataRow(
+                                _allData[index],
+                                visibleIndexes,
+                              ),
+                            );
+                          },
                         ),
-                      )
-                      .toList(),
-                  rows: _allData.map((row) {
-                    return DataRow(
-                      cells: visibleIndexes.map((colIndex) {
-                        final value = colIndex < row.length ? row[colIndex] : '';
-                        return DataCell(
-                          Text(
-                            value.isEmpty ? '—' : value,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        );
-                      }).toList(),
-                    );
-                  }).toList(),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -571,11 +633,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
                   _buildWarehouseStats()
                 else
                   _buildIncomeExpenseStats(),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: _buildDataTable(),
-                  ),
-                ),
+                Expanded(child: _buildDataTable()),
               ],
             ),
     );

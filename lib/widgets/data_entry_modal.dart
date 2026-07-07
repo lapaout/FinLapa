@@ -1,23 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
 
-import '../core/warehouse_dashboard_order.dart';
+import '../core/warehouse_picker_data.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
-import '../models/dashboard.dart';
 import 'adaptive_picker_field.dart';
-class _WarehousePickerItem {
-  final String dateTime;
-  final String name;
-  final String dashboardTitle;
-
-  const _WarehousePickerItem({
-    required this.dateTime,
-    required this.name,
-    required this.dashboardTitle,
-  });
-}
 
 class DataEntryModal extends StatefulWidget {
   static const String amountFieldName = 'Сума';
@@ -53,22 +43,21 @@ class DataEntryModal extends StatefulWidget {
 
 class _DataEntryModalState extends State<DataEntryModal> {
   late Map<String, TextEditingController> _controllers;
+  late final DashboardRepository _dashboardRepository;
+  late final SheetRecordsRepository _recordsRepository;
   final TextEditingController _soldQuantityController = TextEditingController();
 
   bool _isLoadingWarehouseItems = false;
   bool _isSaving = false;
-  List<_WarehousePickerItem> _warehouseItems = [];
+  List<WarehousePickerItem> _warehouseItems = [];
   List<String> _orderedWarehouseTitles = [];
   String? _selectedWarehouseTitle;
   String? _selectedWarehouseItemId;
   List<Map<String, dynamic>> _cartItems = [];
 
-  List<String> get _warehouseTitles {
-    final titlesWithItems = _warehouseItems.map((item) => item.dashboardTitle).toSet();
-    return _orderedWarehouseTitles.where(titlesWithItems.contains).toList();
-  }
+  List<String> get _warehouseTitles => _orderedWarehouseTitles;
 
-  List<_WarehousePickerItem> get _itemsForSelectedWarehouse {
+  List<WarehousePickerItem> get _itemsForSelectedWarehouse {
     if (_selectedWarehouseTitle == null) return const [];
 
     final items = _warehouseItems
@@ -80,13 +69,13 @@ class _DataEntryModalState extends State<DataEntryModal> {
     return items;
   }
 
-  int _comparePickerItems(_WarehousePickerItem a, _WarehousePickerItem b) {
+  int _comparePickerItems(WarehousePickerItem a, WarehousePickerItem b) {
     final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
     if (byName != 0) return byName;
     return a.dashboardTitle.toLowerCase().compareTo(b.dashboardTitle.toLowerCase());
   }
 
-  String _productSearchResultLabel(_WarehousePickerItem item) {
+  String _productSearchResultLabel(WarehousePickerItem item) {
     return '${item.name} (${item.dashboardTitle})';
   }
   String? get _orderNumberFieldKey {
@@ -192,6 +181,10 @@ class _DataEntryModalState extends State<DataEntryModal> {
   @override
   void initState() {
     super.initState();
+    _dashboardRepository =
+        widget.dashboardRepository ?? DashboardRepository();
+    _recordsRepository =
+        widget.recordsRepository ?? SheetRecordsRepository();
     _controllers = {
       for (var field in widget.fields) field: TextEditingController(),
     };
@@ -202,53 +195,20 @@ class _DataEntryModalState extends State<DataEntryModal> {
   }
 
   Future<void> _loadWarehouseItems() async {
-    final dashboardRepository = widget.dashboardRepository;
-    final recordsRepository = widget.recordsRepository;
-
-    if (dashboardRepository == null || recordsRepository == null) {
-      return;
-    }
-
     setState(() => _isLoadingWarehouseItems = true);
 
     try {
-      final dashboards = await dashboardRepository.getCachedDashboards();
-      final orderedWarehouses = orderWarehouseDashboardsForPicker(dashboards);
-
-      final items = <_WarehousePickerItem>[];
-
-      for (final warehouseDashboard in orderedWarehouses) {
-        final records = await recordsRepository.getCachedRecords(
-          sheetTitle: warehouseDashboard.title,
-        );
-
-        final nameFieldIndex = warehouseDashboard.fields.indexOf('Назва');
-        if (nameFieldIndex == -1) continue;
-
-        final valueIndex = nameFieldIndex + 1;
-
-        for (final record in records) {
-          final dateTime = record.dateTime;
-          if (dateTime == null || dateTime.isEmpty) continue;
-          if (record.values.length <= valueIndex) continue;
-
-          final name = record.values[valueIndex].trim();
-          if (name.isEmpty) continue;
-
-          items.add(
-            _WarehousePickerItem(
-              dateTime: dateTime.trim(),
-              name: name,
-              dashboardTitle: warehouseDashboard.title,
-            ),
-          );
-        }
-      }
+      final pickerData = await loadWarehousePickerData(
+        dashboardRepository: _dashboardRepository,
+        recordsRepository: _recordsRepository,
+        user: widget.user,
+      );
 
       if (!mounted) return;
       setState(() {
-        _warehouseItems = items;
-        _orderedWarehouseTitles = orderedWarehouses.map((d) => d.title).toList();
+        _warehouseItems = List<WarehousePickerItem>.from(pickerData.items);
+        _orderedWarehouseTitles =
+            List<String>.from(pickerData.orderedWarehouseTitles);
         _isLoadingWarehouseItems = false;
       });
     } catch (_) {
@@ -485,7 +445,7 @@ class _DataEntryModalState extends State<DataEntryModal> {
   }
 
   Future<void> _openQuickProductSearchSheet() async {
-    final selected = await showModalBottomSheet<_WarehousePickerItem>(
+    final selected = await showModalBottomSheet<WarehousePickerItem>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
@@ -512,9 +472,9 @@ class _DataEntryModalState extends State<DataEntryModal> {
       border: OutlineInputBorder(),
     );
 
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: _isLoadingWarehouseItems ? null : _openQuickProductSearchSheet,
-      borderRadius: BorderRadius.circular(4),
       child: InputDecorator(
         decoration: decoration.copyWith(
           suffixIcon: const Icon(Icons.arrow_drop_down),
@@ -691,6 +651,7 @@ class _DataEntryModalState extends State<DataEntryModal> {
         top: 24,
       ),
       child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -714,9 +675,9 @@ class _DataEntryModalState extends State<DataEntryModal> {
 }
 
 class _GlobalProductSearchSheet extends StatefulWidget {
-  final List<_WarehousePickerItem> items;
-  final String Function(_WarehousePickerItem item) labelBuilder;
-  final int Function(_WarehousePickerItem a, _WarehousePickerItem b) compareItems;
+  final List<WarehousePickerItem> items;
+  final String Function(WarehousePickerItem item) labelBuilder;
+  final int Function(WarehousePickerItem a, WarehousePickerItem b) compareItems;
 
   const _GlobalProductSearchSheet({
     required this.items,
@@ -730,27 +691,49 @@ class _GlobalProductSearchSheet extends StatefulWidget {
 
 class _GlobalProductSearchSheetState extends State<_GlobalProductSearchSheet> {
   final TextEditingController _searchController = TextEditingController();
-  String _query = '';
+  final FocusNode _searchFocusNode = FocusNode();
+  final ValueNotifier<String> _searchQueryNotifier = ValueNotifier('');
+  late final ValueNotifier<List<WarehousePickerItem>> _visibleItemsNotifier;
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _visibleItemsNotifier = ValueNotifier(const []);
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
+    _searchQueryNotifier.dispose();
+    _visibleItemsNotifier.dispose();
     super.dispose();
   }
 
-  List<_WarehousePickerItem> get _filteredItems {
-    final normalizedQuery = _query.trim().toLowerCase();
+  List<WarehousePickerItem> _computeVisibleItems(String query) {
+    final normalizedQuery = query.trim().toLowerCase();
     if (normalizedQuery.isEmpty) return const [];
 
     final matches = widget.items
         .where((item) => item.name.toLowerCase().contains(normalizedQuery))
         .toList();
     matches.sort(widget.compareItems);
-    return matches;
+    return List<WarehousePickerItem>.from(matches);
   }
 
-  Widget _buildResultsArea() {
-    if (_query.trim().isEmpty) {
+  void _onSearchChanged(String value) {
+    _searchQueryNotifier.value = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _visibleItemsNotifier.value = _computeVisibleItems(value);
+    });
+  }
+
+  Widget _buildResultsArea(String query, List<WarehousePickerItem> visibleItems) {
+    if (query.trim().isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Text(
@@ -761,8 +744,7 @@ class _GlobalProductSearchSheetState extends State<_GlobalProductSearchSheet> {
       );
     }
 
-    final filteredItems = _filteredItems;
-    if (filteredItems.isEmpty) {
+    if (visibleItems.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Text(
@@ -774,10 +756,10 @@ class _GlobalProductSearchSheetState extends State<_GlobalProductSearchSheet> {
     }
 
     return ListView.builder(
-      shrinkWrap: true,
-      itemCount: filteredItems.length,
+      itemCount: visibleItems.length,
+      addAutomaticKeepAlives: false,
       itemBuilder: (context, index) {
-        final item = filteredItems[index];
+        final item = visibleItems[index];
         return ListTile(
           title: Text(
             widget.labelBuilder(item),
@@ -792,28 +774,43 @@ class _GlobalProductSearchSheetState extends State<_GlobalProductSearchSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final sheetHeight = MediaQuery.sizeOf(context).height * 0.55;
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: TextField(
-                controller: _searchController,
-                autofocus: false,
-                decoration: const InputDecoration(
-                  hintText: 'Пошук товару...',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
+        child: SizedBox(
+          height: sheetHeight,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  autofocus: false,
+                  decoration: const InputDecoration(
+                    hintText: 'Пошук товару...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: _onSearchChanged,
                 ),
-                onChanged: (value) => setState(() => _query = value),
               ),
-            ),
-            Flexible(child: _buildResultsArea()),
-          ],
+              Expanded(
+                child: ValueListenableBuilder<String>(
+                  valueListenable: _searchQueryNotifier,
+                  builder: (context, query, _) {
+                    return ValueListenableBuilder<List<WarehousePickerItem>>(
+                      valueListenable: _visibleItemsNotifier,
+                      builder: (context, visibleItems, __) =>
+                          _buildResultsArea(query, visibleItems),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

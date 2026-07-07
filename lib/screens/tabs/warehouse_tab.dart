@@ -3,6 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../core/dashboard_search_filter.dart';
 import '../../core/network_exception.dart';
+import '../../core/warehouse_picker_data.dart';
 import '../../core/warehouse_product_names.dart';
 import '../../data/repositories/dashboard_repository.dart';
 import '../../data/repositories/sheet_records_repository.dart';
@@ -158,12 +159,10 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   }
 
   Future<void> _loadWarehouseProductNames() async {
-    final warehouses = _dashboards
-        .where(
-          (dashboard) =>
-              dashboard.type == Dashboard.typeWarehouse && !dashboard.isArchived,
-        )
-        .toList();
+    final warehouses = await resolveWarehouseDashboardsForPicker(
+      dashboardRepository: _dashboardRepository,
+      user: widget.user,
+    );
 
     if (warehouses.isEmpty) {
       if (!mounted) return;
@@ -173,8 +172,9 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
 
     final entries = await Future.wait(
       warehouses.map((warehouse) async {
-        final records = await _recordsRepository.getCachedRecords(
+        final records = await _recordsRepository.getRecordsPreferCache(
           sheetTitle: warehouse.title,
+          user: widget.user,
         );
         return MapEntry(
           warehouse.title,

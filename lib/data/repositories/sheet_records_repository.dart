@@ -29,6 +29,20 @@ class SheetRecordsRepository {
     return sheetData.records;
   }
 
+  /// Спочатку локальний кеш; якщо порожній і є [user] — завантажує з мережі та кешує.
+  Future<List<SheetRecord>> getRecordsPreferCache({
+    required String sheetTitle,
+    GoogleSignInAccount? user,
+  }) async {
+    final cached = await getCachedRecords(sheetTitle: sheetTitle);
+    if (cached.isNotEmpty || user == null) {
+      return cached;
+    }
+
+    final result = await getRecords(user: user, sheetTitle: sheetTitle);
+    return result.data;
+  }
+
   /// Заголовки аркуша з локального кешу (актуальні після [getRecords]).
   Future<List<String>> getSheetHeaders(String sheetTitle) async {
     return (await _cache.getSheetData(sheetTitle)).headers;

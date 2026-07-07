@@ -2,6 +2,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../core/data_result.dart';
 import '../../core/network_exception.dart';
+import '../../core/warehouse_dashboard_order.dart';
 import '../../models/dashboard.dart';
 import '../sources/local_cache_data_source.dart';
 import '../sources/sheets_api.dart';
@@ -50,6 +51,12 @@ class DashboardRepository {
   /// Лише локальний кеш App_Config — без мережевих запитів.
   Future<List<Dashboard>> getCachedDashboards() async {
     return _cache.getDashboards();
+  }
+
+  /// Склади з локального кешу App_Config у порядку drag-and-drop (як на головному екрані).
+  Future<List<Dashboard>> getCachedWarehouseDashboards() async {
+    final dashboards = await getCachedDashboards();
+    return orderWarehouseDashboardsForPicker(dashboards);
   }
 
   /// Зберігає новий ПОРЯДОК дашбордів за патерном Read-Before-Write (online-first).
