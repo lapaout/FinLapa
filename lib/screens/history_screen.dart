@@ -260,10 +260,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return null;
   }
 
-  /// Загальна сума всіх записів `amount` у звичайному дашборді (Доходи/Витрати).
+  /// Загальна сума записів у поточному фільтрі (Доходи/Витрати).
   num get _totalAmount {
     num total = 0;
-    for (final row in _allData) {
+    for (final row in _filteredData) {
       final amount = _amountForRow(row);
       if (amount != null) total += amount;
     }
