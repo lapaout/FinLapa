@@ -6,12 +6,14 @@ import 'warehouse_linked_info_banner.dart';
 class DashboardManageModal extends StatelessWidget {
   final Dashboard dashboard;
   final VoidCallback onArchive;
+  final VoidCallback onToggleHidden;
   final VoidCallback onDeleteForever;
 
   const DashboardManageModal({
     super.key,
     required this.dashboard,
     required this.onArchive,
+    required this.onToggleHidden,
     required this.onDeleteForever,
   });
 
@@ -41,9 +43,26 @@ class DashboardManageModal extends StatelessWidget {
           const SizedBox(height: 20),
           ListTile(
             contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              dashboard.isHidden ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+              color: Colors.blueGrey,
+            ),
+            title: Text(dashboard.isHidden ? 'Показати' : 'Приховати'),
+            subtitle: Text(
+              dashboard.isHidden
+                  ? 'Повернути в основний список'
+                  : 'Приховати з основного списку (залишається активним)',
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              onToggleHidden();
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.archive_outlined, color: Colors.orange),
             title: const Text('В архів'),
-            subtitle: const Text('Приховати з основного списку'),
+            subtitle: const Text('Деактивувати та приховати з усіх списків'),
             onTap: () {
               Navigator.pop(context);
               onArchive();

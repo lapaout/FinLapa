@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../core/dashboard_search_filter.dart';
 import '../../core/network_exception.dart';
 import '../../data/repositories/dashboard_repository.dart';
 import '../../data/repositories/sheet_records_repository.dart';
 import '../../models/dashboard.dart';
+import '../../widgets/dashboard_search_bar.dart';
 import '../../widgets/dashboard_manage_modal.dart';
 import '../../widgets/delete_dashboard_dialog.dart';
 import '../../widgets/module_builder_modal.dart';
@@ -36,17 +38,43 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
   bool _isLoading = false;
   bool _isOffline = false;
   bool _hasLoadedOnce = false;
+  String _searchQuery = '';
+  late final TextEditingController _searchController;
 
   @override
   bool get wantKeepAlive => _hasLoadedOnce;
 
+  bool get _isSearchActive => DashboardSearchFilter.isActive(_searchQuery);
+
+  bool get _canReorder => !_isSearchActive && !_isOffline;
+
   List<Dashboard> get _activeDashboards => _dashboards
-      .where((dashboard) => dashboard.type == Dashboard.typeIncome && !dashboard.isArchived)
+      .where(
+        (dashboard) =>
+            dashboard.type == Dashboard.typeIncome &&
+            !dashboard.isArchived &&
+            !dashboard.isHidden,
+      )
+      .toList();
+
+  List<Dashboard> get _hiddenDashboards => _dashboards
+      .where(
+        (dashboard) =>
+            dashboard.type == Dashboard.typeIncome &&
+            !dashboard.isArchived &&
+            dashboard.isHidden,
+      )
       .toList();
 
   List<Dashboard> get _archivedDashboards => _dashboards
       .where((dashboard) => dashboard.type == Dashboard.typeIncome && dashboard.isArchived)
       .toList();
+
+  List<Dashboard> get _filteredActiveDashboards =>
+      DashboardSearchFilter.filterByTitle(_activeDashboards, _searchQuery);
+
+  List<Dashboard> get _filteredHiddenDashboards =>
+      DashboardSearchFilter.filterByTitle(_hiddenDashboards, _searchQuery);
 
   List<Dashboard> get _expenseDashboards =>
       _dashboards.where((dashboard) => dashboard.type == Dashboard.typeExpense).toList();
@@ -56,10 +84,12 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
 
   List<Dashboard> _mergeIncomeDashboards({
     required List<Dashboard> activeIncome,
+    required List<Dashboard> hiddenIncome,
     required List<Dashboard> archivedIncome,
   }) {
     return [
       ...activeIncome,
+      ...hiddenIncome,
       ...archivedIncome,
       ..._expenseDashboards,
       ..._warehouseDashboards,
@@ -69,9 +99,16 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
     if (widget.isActive) {
       _loadDashboards();
     }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -180,9 +217,50 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
       builder: (context) => DashboardManageModal(
         dashboard: dashboard,
         onArchive: () => _archiveDashboard(dashboard),
+        onToggleHidden: () => _toggleDashboardHidden(dashboard),
         onDeleteForever: () => _confirmDeleteDashboard(dashboard),
       ),
     );
+  }
+
+  Future<void> _toggleDashboardHidden(Dashboard dashboard) async {
+    final hide = !dashboard.isHidden;
+
+    try {
+      final latest = await _dashboardRepository.updateDashboard(
+        user: widget.user,
+        oldTitle: dashboard.title,
+        updatedDashboard: dashboard.copyWith(isHidden: hide),
+      );
+      if (!mounted) return;
+      setState(() {
+        _dashboards = latest;
+        _isOffline = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            hide
+                ? '👁 "${dashboard.title}" приховано'
+                : '✅ "${dashboard.title}" показано',
+          ),
+          backgroundColor: hide ? Colors.blueGrey : Colors.green,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isOffline = isNetworkError(error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isNetworkError(error)
+                ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
+                : '❌ Помилка: $error',
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   Future<void> _archiveDashboard(Dashboard dashboard) async {
@@ -279,6 +357,7 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
     setState(() {
       _dashboards = _mergeIncomeDashboards(
         activeIncome: active,
+        hiddenIncome: _hiddenDashboards,
         archivedIncome: _archivedDashboards,
       );
     });
@@ -640,6 +719,11 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
+              DashboardSearchBar(
+                controller: _searchController,
+                onChanged: (value) => setState(() => _searchQuery = value),
+              ),
+              const SizedBox(height: 12),
               if (_isOffline)
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
@@ -665,7 +749,18 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
                     ],
                   ),
                 ),
-              if (_activeDashboards.isEmpty)
+              if (_isSearchActive &&
+                  _filteredActiveDashboards.isEmpty &&
+                  _filteredHiddenDashboards.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 24.0),
+                  child: Text(
+                    'Нічого не знайдено.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                )
+              else if (!_isSearchActive && _activeDashboards.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(bottom: 24.0),
                   child: Text(
@@ -677,22 +772,32 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
             ]),
           ),
         ),
-        if (_activeDashboards.isNotEmpty)
+        if (_filteredActiveDashboards.isNotEmpty)
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverReorderableList(
-              itemCount: _activeDashboards.length,
-              onReorder: _isOffline ? (_, __) {} : _onReorderActiveDashboards,
-              itemBuilder: (context, index) {
-                final dashboard = _activeDashboards[index];
-                return ReorderableDelayedDragStartListener(
-                  key: ValueKey('income-active-${dashboard.title}'),
-                  index: index,
-                  enabled: !_isOffline,
-                  child: _buildActiveDashboardCard(dashboard),
-                );
-              },
-            ),
+            sliver: _canReorder
+                ? SliverReorderableList(
+                    itemCount: _filteredActiveDashboards.length,
+                    onReorder: _onReorderActiveDashboards,
+                    itemBuilder: (context, index) {
+                      final dashboard = _filteredActiveDashboards[index];
+                      return ReorderableDelayedDragStartListener(
+                        key: ValueKey('income-active-${dashboard.title}'),
+                        index: index,
+                        enabled: true,
+                        child: _buildActiveDashboardCard(dashboard),
+                      );
+                    },
+                  )
+                : SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final dashboard = _filteredActiveDashboards[index];
+                        return _buildActiveDashboardCard(dashboard);
+                      },
+                      childCount: _filteredActiveDashboards.length,
+                    ),
+                  ),
           ),
         SliverPadding(
           padding: const EdgeInsets.all(16),
@@ -726,6 +831,34 @@ class _IncomeTabState extends State<IncomeTab> with AutomaticKeepAliveClientMixi
                   ),
                 ),
               ),
+              if (_filteredHiddenDashboards.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Row(
+                    children: [
+                      Icon(Icons.visibility_off_outlined, color: Colors.grey.shade700),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Приховані дашборди (${_filteredHiddenDashboards.length})',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: _filteredHiddenDashboards
+                      .map(
+                        (dashboard) => KeyedSubtree(
+                          key: ValueKey('income-hidden-${dashboard.title}'),
+                          child: _buildActiveDashboardCard(dashboard),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
               if (_archivedDashboards.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 ExpansionTile(

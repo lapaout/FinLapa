@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
 
-import '../core/warehouse_analytics.dart';
+import '../core/warehouse_dashboard_order.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
-
+import 'adaptive_picker_field.dart';
 class _WarehousePickerItem {
   final String dateTime;
   final String name;
@@ -58,22 +58,37 @@ class _DataEntryModalState extends State<DataEntryModal> {
   bool _isLoadingWarehouseItems = false;
   bool _isSaving = false;
   List<_WarehousePickerItem> _warehouseItems = [];
+  List<String> _orderedWarehouseTitles = [];
   String? _selectedWarehouseTitle;
   String? _selectedWarehouseItemId;
   List<Map<String, dynamic>> _cartItems = [];
 
-  List<String> get _warehouseTitles => _warehouseItems
-      .map((item) => item.dashboardTitle)
-      .toSet()
-      .toList()
-    ..sort();
+  List<String> get _warehouseTitles {
+    final titlesWithItems = _warehouseItems.map((item) => item.dashboardTitle).toSet();
+    return _orderedWarehouseTitles.where(titlesWithItems.contains).toList();
+  }
 
-  List<_WarehousePickerItem> get _itemsForSelectedWarehouse => _selectedWarehouseTitle == null
-      ? const []
-      : _warehouseItems
-          .where((item) => item.dashboardTitle == _selectedWarehouseTitle)
-          .toList();
+  List<_WarehousePickerItem> get _itemsForSelectedWarehouse {
+    if (_selectedWarehouseTitle == null) return const [];
 
+    final items = _warehouseItems
+        .where((item) => item.dashboardTitle == _selectedWarehouseTitle)
+        .toList();
+    items.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return items;
+  }
+
+  int _comparePickerItems(_WarehousePickerItem a, _WarehousePickerItem b) {
+    final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    if (byName != 0) return byName;
+    return a.dashboardTitle.toLowerCase().compareTo(b.dashboardTitle.toLowerCase());
+  }
+
+  String _productSearchResultLabel(_WarehousePickerItem item) {
+    return '${item.name} (${item.dashboardTitle})';
+  }
   String? get _orderNumberFieldKey {
     for (final field in widget.fields) {
       if (field.toLowerCase().contains('номер замовлення')) {
@@ -187,30 +202,23 @@ class _DataEntryModalState extends State<DataEntryModal> {
   }
 
   Future<void> _loadWarehouseItems() async {
-    final user = widget.user;
     final dashboardRepository = widget.dashboardRepository;
     final recordsRepository = widget.recordsRepository;
 
-    if (user == null || dashboardRepository == null || recordsRepository == null) {
+    if (dashboardRepository == null || recordsRepository == null) {
       return;
     }
 
     setState(() => _isLoadingWarehouseItems = true);
 
     try {
-      final dashboardsResult = await dashboardRepository.getDashboards(user: user);
-      final warehouseDashboards = dashboardsResult.data
-          .where(
-            (dashboard) =>
-                dashboard.type == Dashboard.typeWarehouse && !dashboard.isArchived,
-          )
-          .toList();
+      final dashboards = await dashboardRepository.getCachedDashboards();
+      final orderedWarehouses = orderWarehouseDashboardsForPicker(dashboards);
 
       final items = <_WarehousePickerItem>[];
 
-      for (final warehouseDashboard in warehouseDashboards) {
-        final recordsResult = await recordsRepository.getRecords(
-          user: user,
+      for (final warehouseDashboard in orderedWarehouses) {
+        final records = await recordsRepository.getCachedRecords(
           sheetTitle: warehouseDashboard.title,
         );
 
@@ -219,7 +227,7 @@ class _DataEntryModalState extends State<DataEntryModal> {
 
         final valueIndex = nameFieldIndex + 1;
 
-        for (final record in recordsResult.data) {
+        for (final record in records) {
           final dateTime = record.dateTime;
           if (dateTime == null || dateTime.isEmpty) continue;
           if (record.values.length <= valueIndex) continue;
@@ -240,6 +248,7 @@ class _DataEntryModalState extends State<DataEntryModal> {
       if (!mounted) return;
       setState(() {
         _warehouseItems = items;
+        _orderedWarehouseTitles = orderedWarehouses.map((d) => d.title).toList();
         _isLoadingWarehouseItems = false;
       });
     } catch (_) {
@@ -475,6 +484,49 @@ class _DataEntryModalState extends State<DataEntryModal> {
     );
   }
 
+  Future<void> _openQuickProductSearchSheet() async {
+    final selected = await showModalBottomSheet<_WarehousePickerItem>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => _GlobalProductSearchSheet(
+        items: _warehouseItems,
+        labelBuilder: _productSearchResultLabel,
+        compareItems: _comparePickerItems,
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    setState(() {
+      _selectedWarehouseTitle = selected.dashboardTitle;
+      _selectedWarehouseItemId = selected.dateTime;
+    });
+  }
+
+  Widget _buildQuickProductSearch() {
+    const decoration = InputDecoration(
+      labelText: 'Швидкий пошук товару',
+      border: OutlineInputBorder(),
+    );
+
+    return InkWell(
+      onTap: _isLoadingWarehouseItems ? null : _openQuickProductSearchSheet,
+      borderRadius: BorderRadius.circular(4),
+      child: InputDecorator(
+        decoration: decoration.copyWith(
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+          hintText: 'Швидкий пошук товару',
+          floatingLabelBehavior: FloatingLabelBehavior.auto,
+        ),
+        isEmpty: true,
+        child: const SizedBox(height: 24),
+      ),
+    );
+  }
+
   Widget _buildWarehouseSection() {
     if (_isLoadingWarehouseItems) {
       return const Padding(
@@ -486,7 +538,9 @@ class _DataEntryModalState extends State<DataEntryModal> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        DropdownButtonFormField<String?>(
+        _buildQuickProductSearch(),
+        const SizedBox(height: 12),
+        AdaptivePickerField<String?>(
           value: _warehouseTitles.contains(_selectedWarehouseTitle)
               ? _selectedWarehouseTitle
               : null,
@@ -494,14 +548,10 @@ class _DataEntryModalState extends State<DataEntryModal> {
             labelText: 'Оберіть склад',
             border: OutlineInputBorder(),
           ),
-          hint: const Text('Оберіть склад'),
-          isExpanded: true,
-          items: _warehouseTitles
+          hintText: 'Оберіть склад',
+          options: _warehouseTitles
               .map(
-                (title) => DropdownMenuItem<String?>(
-                  value: title,
-                  child: Text(title),
-                ),
+                (title) => PickerOption<String?>(value: title, label: title),
               )
               .toList(),
           onChanged: (value) {
@@ -514,7 +564,7 @@ class _DataEntryModalState extends State<DataEntryModal> {
         ),
         if (_selectedWarehouseTitle != null) ...[
           const SizedBox(height: 12),
-          DropdownButtonFormField<String?>(
+          AdaptivePickerField<String?>(
             value: _itemsForSelectedWarehouse
                     .any((item) => item.dateTime == _selectedWarehouseItemId)
                 ? _selectedWarehouseItemId
@@ -523,20 +573,16 @@ class _DataEntryModalState extends State<DataEntryModal> {
               labelText: 'Оберіть товар',
               border: OutlineInputBorder(),
             ),
-            hint: const Text('Оберіть товар'),
-            isExpanded: true,
-            items: [
-              const DropdownMenuItem<String?>(
+            hintText: 'Оберіть товар',
+            options: [
+              const PickerOption<String?>(
                 value: null,
-                child: Text('— Оберіть товар —'),
+                label: '— Оберіть товар —',
               ),
               ..._itemsForSelectedWarehouse.map(
-                (item) => DropdownMenuItem<String?>(
+                (item) => PickerOption<String?>(
                   value: item.dateTime,
-                  child: Text(
-                    item.name,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  label: item.name,
                 ),
               ),
             ],
@@ -660,6 +706,113 @@ class _DataEntryModalState extends State<DataEntryModal> {
             const SizedBox(height: 16),
             _buildSaveButtons(),
             const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GlobalProductSearchSheet extends StatefulWidget {
+  final List<_WarehousePickerItem> items;
+  final String Function(_WarehousePickerItem item) labelBuilder;
+  final int Function(_WarehousePickerItem a, _WarehousePickerItem b) compareItems;
+
+  const _GlobalProductSearchSheet({
+    required this.items,
+    required this.labelBuilder,
+    required this.compareItems,
+  });
+
+  @override
+  State<_GlobalProductSearchSheet> createState() => _GlobalProductSearchSheetState();
+}
+
+class _GlobalProductSearchSheetState extends State<_GlobalProductSearchSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<_WarehousePickerItem> get _filteredItems {
+    final normalizedQuery = _query.trim().toLowerCase();
+    if (normalizedQuery.isEmpty) return const [];
+
+    final matches = widget.items
+        .where((item) => item.name.toLowerCase().contains(normalizedQuery))
+        .toList();
+    matches.sort(widget.compareItems);
+    return matches;
+  }
+
+  Widget _buildResultsArea() {
+    if (_query.trim().isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Почніть вводити назву товару...',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    final filteredItems = _filteredItems;
+    if (filteredItems.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Нічого не знайдено',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      itemCount: filteredItems.length,
+      itemBuilder: (context, index) {
+        final item = filteredItems[index];
+        return ListTile(
+          title: Text(
+            widget.labelBuilder(item),
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () => Navigator.pop(context, item),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: TextField(
+                controller: _searchController,
+                autofocus: false,
+                decoration: const InputDecoration(
+                  hintText: 'Пошук товару...',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) => setState(() => _query = value),
+              ),
+            ),
+            Flexible(child: _buildResultsArea()),
           ],
         ),
       ),

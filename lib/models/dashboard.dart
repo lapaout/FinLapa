@@ -17,6 +17,7 @@ class Dashboard {
   final int colorValue;
   final List<String> fields;
   final bool isArchived;
+  final bool isHidden;
   final String type;
   final bool isWarehouseLinked;
 
@@ -26,6 +27,7 @@ class Dashboard {
     required this.colorValue,
     required this.fields,
     this.isArchived = false,
+    this.isHidden = false,
     this.type = typeIncome,
     this.isWarehouseLinked = false,
   });
@@ -37,6 +39,7 @@ class Dashboard {
       colorValue: _parseInt(map['color'], defaultColorValue),
       fields: _parseFields(map['fields']),
       isArchived: _parseBool(map['isArchived']),
+      isHidden: _parseBool(map['isHidden']),
       type: _parseType(map['type']),
       isWarehouseLinked: _parseBool(map['isWarehouseLinked']),
     );
@@ -57,6 +60,7 @@ class Dashboard {
       isArchived: row.length >= 5 ? _parseArchivedCell(row[4]) : false,
       type: row.length >= 6 ? _parseType(row[5]) : typeIncome,
       isWarehouseLinked: row.length >= 7 ? _parseLinkedCell(row[6]) : false,
+      isHidden: row.length >= 8 ? _parseArchivedCell(row[7]) : false,
     );
   }
 
@@ -67,6 +71,7 @@ class Dashboard {
       'color': colorValue,
       'fields': List<String>.from(fields),
       'isArchived': isArchived,
+      'isHidden': isHidden,
       'type': type,
       'isWarehouseLinked': isWarehouseLinked,
     };
@@ -83,6 +88,7 @@ class Dashboard {
       isArchived ? '1' : '0',
       type,
       isWarehouseLinked ? '1' : '0',
+      isHidden ? '1' : '0',
     ];
   }
 
@@ -94,6 +100,7 @@ class Dashboard {
     'IsArchived',
     'Type',
     'IsWarehouseLinked',
+    'IsHidden',
   ];
 
   static List<Dashboard> listFromSheetRows(List<List<String>> rows) {
@@ -117,6 +124,7 @@ class Dashboard {
           isArchived: row.length >= 5 ? _parseArchivedCell(row[4]) : false,
           type: row.length >= 6 ? _parseType(row[5]) : typeIncome,
           isWarehouseLinked: row.length >= 7 ? _parseLinkedCell(row[6]) : false,
+          isHidden: row.length >= 8 ? _parseArchivedCell(row[7]) : false,
         ),
       );
     }
@@ -136,6 +144,7 @@ class Dashboard {
     int? colorValue,
     List<String>? fields,
     bool? isArchived,
+    bool? isHidden,
     String? type,
     bool? isWarehouseLinked,
   }) {
@@ -145,6 +154,7 @@ class Dashboard {
       colorValue: colorValue ?? this.colorValue,
       fields: fields ?? this.fields,
       isArchived: isArchived ?? this.isArchived,
+      isHidden: isHidden ?? this.isHidden,
       type: type ?? this.type,
       isWarehouseLinked: isWarehouseLinked ?? this.isWarehouseLinked,
     );

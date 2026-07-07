@@ -23,6 +23,12 @@ class SheetRecordsRepository {
     return sheetResult.map((data) => data.records);
   }
 
+  /// Лише локальний кеш записів аркуша — без мережевих запитів.
+  Future<List<SheetRecord>> getCachedRecords({required String sheetTitle}) async {
+    final sheetData = await _cache.getSheetData(sheetTitle);
+    return sheetData.records;
+  }
+
   /// Заголовки аркуша з локального кешу (актуальні після [getRecords]).
   Future<List<String>> getSheetHeaders(String sheetTitle) async {
     return (await _cache.getSheetData(sheetTitle)).headers;

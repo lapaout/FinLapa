@@ -47,6 +47,11 @@ class DashboardRepository {
     }
   }
 
+  /// Лише локальний кеш App_Config — без мережевих запитів.
+  Future<List<Dashboard>> getCachedDashboards() async {
+    return _cache.getDashboards();
+  }
+
   /// Зберігає новий ПОРЯДОК дашбордів за патерном Read-Before-Write (online-first).
   ///
   /// [orderedActiveTitles] — новий порядок НЕархівних дашбордів типу [type],
@@ -67,7 +72,10 @@ class DashboardRepository {
 
     // Активні дашборди цього типу зі СВІЖОГО хмарного списку.
     final activeOfType = latestDashboards
-        .where((dashboard) => dashboard.type == type && !dashboard.isArchived)
+        .where(
+          (dashboard) =>
+              dashboard.type == type && !dashboard.isArchived && !dashboard.isHidden,
+        )
         .toList();
     final byTitle = {
       for (final dashboard in activeOfType) dashboard.title: dashboard,
@@ -94,7 +102,7 @@ class DashboardRepository {
     final updatedDashboards = <Dashboard>[];
     var cursor = 0;
     for (final dashboard in latestDashboards) {
-      if (dashboard.type == type && !dashboard.isArchived) {
+      if (dashboard.type == type && !dashboard.isArchived && !dashboard.isHidden) {
         updatedDashboards.add(reordered[cursor]);
         cursor++;
       } else {
