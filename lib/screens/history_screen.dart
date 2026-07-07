@@ -3,6 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../core/ui_field_filter.dart';
 import '../core/warehouse_analytics.dart';
+import '../core/warehouse_sales_index.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
@@ -43,6 +44,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<LinkedIncomeRecord> _linkedIncomeRecords = [];
   List<String> _headers = [];
 
+  WarehouseStatsCache _warehouseStatsCache = WarehouseStatsCache.empty;
+  num _totalAmountCache = 0;
+
   String _currentFilter = 'Всі';
   DateTimeRange? _customDateRange;
 
@@ -76,12 +80,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     final headers = await _recordsRepository.getSheetHeaders(widget.dashboardTitle);
 
+    final warehouseStatsCache = widget.isWarehouse
+        ? buildWarehouseStatsCache(
+            items: result.data,
+            dashboard: _warehouseDashboard,
+            linkedIncomeRecords: _linkedIncomeRecords,
+          )
+        : WarehouseStatsCache.empty;
+
     setState(() {
       _isOffline = result.isOffline;
       _headers = headers;
       _records = result.data;
       _allData = SheetRecordsRepository.recordsToDisplayRows(result.data);
       _filteredData = List.from(_allData);
+      _warehouseStatsCache = warehouseStatsCache;
+      _totalAmountCache = _computeTotalAmount(_filteredData);
       _isLoading = false;
     });
 
@@ -154,6 +168,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return null;
   }
 
+  num _computeTotalAmount(List<List<String>> rows) {
+    num total = 0;
+    for (final row in rows) {
+      final amount = _amountForRow(row);
+      if (amount != null) total += amount;
+    }
+    return total;
+  }
+
   void _applyFilter(String filter) {
     setState(() {
       _currentFilter = filter;
@@ -161,6 +184,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
       if (filter == 'Всі') {
         _filteredData = List.from(_allData);
+        _totalAmountCache = _computeTotalAmount(_filteredData);
         return;
       }
 
@@ -181,6 +205,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         }
         return true;
       }).toList();
+      _totalAmountCache = _computeTotalAmount(_filteredData);
     });
   }
 
@@ -211,6 +236,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           return rowDate.isAfter(start) && rowDate.isBefore(end);
         }).toList();
+        _totalAmountCache = _computeTotalAmount(_filteredData);
       });
     }
   }
@@ -260,34 +286,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return null;
   }
 
-  /// Загальна сума записів у поточному фільтрі (Доходи/Витрати).
-  num get _totalAmount {
-    num total = 0;
-    for (final row in _filteredData) {
-      final amount = _amountForRow(row);
-      if (amount != null) total += amount;
-    }
-    return total;
-  }
-
-  /// Сумарна статистика для всього складського дашборда.
-  /// Переюзовує існуючу логіку [calculateWarehouseStats] для кожної позиції,
-  /// нічого в ній не змінюючи.
-  Map<String, num> get _warehouseTotals {
-    num remaining = 0;
-    num spent = 0;
-    num earned = 0;
-    for (final item in _records) {
-      final stats = calculateWarehouseStats(
-        item: item,
-        dashboard: _warehouseDashboard,
-        linkedIncomeRecords: _linkedIncomeRecords,
-      );
-      remaining += stats['remaining'] ?? 0;
-      spent += stats['spent'] ?? 0;
-      earned += stats['earned'] ?? 0;
-    }
-    return {'remaining': remaining, 'spent': spent, 'earned': earned};
+  WarehouseStats _statsForItem(SheetRecord item) {
+    return _warehouseStatsCache.statsFor(item) ??
+        calculateWarehouseStatsIndexed(
+          item: item,
+          dashboard: _warehouseDashboard,
+          salesIndex: _warehouseStatsCache.salesIndex,
+        );
   }
 
   String _formatNumber(num value) {
@@ -423,10 +428,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       padding: const EdgeInsets.all(16),
       itemCount: _records.length,
       itemBuilder: (context, index) {
+        final item = _records[index];
         return WarehouseItemCard(
-          item: _records[index],
+          item: item,
           dashboard: _warehouseDashboard,
-          linkedIncomeRecords: _linkedIncomeRecords,
+          stats: _statsForItem(item),
           accentColor: widget.dashboardColor,
         );
       },
@@ -516,7 +522,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${_formatNumber(_totalAmount)} ₴',
+                    '${_formatNumber(_totalAmountCache)} ₴',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 26,
@@ -534,7 +540,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   /// Сумарна плашка для всього складського дашборда (3 показники + прибуток).
   Widget _buildWarehouseStatsBanner() {
-    final totals = _warehouseTotals;
+    final totals = _warehouseStatsCache.totals;
     final spent = totals['spent'] ?? 0;
     final earned = totals['earned'] ?? 0;
     final profit = earned - spent;

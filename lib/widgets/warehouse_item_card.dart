@@ -1,30 +1,26 @@
 import 'package:flutter/material.dart';
 
 import '../core/warehouse_analytics.dart';
+import '../core/warehouse_sales_index.dart';
 import '../models/dashboard.dart';
 import '../models/sheet_record.dart';
 
 class WarehouseItemCard extends StatelessWidget {
   final SheetRecord item;
   final Dashboard dashboard;
-  final List<LinkedIncomeRecord> linkedIncomeRecords;
+  final WarehouseStats stats;
   final Color accentColor;
 
   const WarehouseItemCard({
     super.key,
     required this.item,
     required this.dashboard,
-    required this.linkedIncomeRecords,
+    required this.stats,
     required this.accentColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final stats = calculateWarehouseStats(
-      item: item,
-      dashboard: dashboard,
-      linkedIncomeRecords: linkedIncomeRecords,
-    );
     final fields = recordFieldMap(item, dashboard.fields);
     final name = fields['Назва']?.trim().isNotEmpty == true
         ? fields['Назва']!.trim()

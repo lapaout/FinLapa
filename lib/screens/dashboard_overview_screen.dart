@@ -3,6 +3,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../core/ui_field_filter.dart';
 import '../core/warehouse_analytics.dart';
+import '../core/warehouse_sales_index.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
@@ -41,6 +42,9 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   List<LinkedIncomeRecord> _linkedIncomeRecords = [];
   List<String> _headers = [];
 
+  WarehouseStatsCache _warehouseStatsCache = WarehouseStatsCache.empty;
+  num _totalAmountCache = 0;
+
   Dashboard get _warehouseDashboard => Dashboard(
         title: widget.dashboardTitle,
         fields: widget.dashboardFields,
@@ -71,11 +75,23 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
 
     final headers = await _recordsRepository.getSheetHeaders(widget.dashboardTitle);
 
+    final warehouseStatsCache = widget.isWarehouse
+        ? buildWarehouseStatsCache(
+            items: result.data,
+            dashboard: _warehouseDashboard,
+            linkedIncomeRecords: _linkedIncomeRecords,
+          )
+        : WarehouseStatsCache.empty;
+
+    final allData = SheetRecordsRepository.recordsToDisplayRows(result.data);
+
     setState(() {
       _isOffline = result.isOffline;
       _headers = headers;
       _records = result.data;
-      _allData = SheetRecordsRepository.recordsToDisplayRows(result.data);
+      _allData = allData;
+      _warehouseStatsCache = warehouseStatsCache;
+      _totalAmountCache = _computeTotalAmount(allData);
       _isLoading = false;
     });
   }
@@ -128,30 +144,13 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     return null;
   }
 
-  num get _totalAmount {
+  num _computeTotalAmount(List<List<String>> rows) {
     num total = 0;
-    for (final row in _allData) {
+    for (final row in rows) {
       final amount = _amountForRow(row);
       if (amount != null) total += amount;
     }
     return total;
-  }
-
-  Map<String, num> get _warehouseTotals {
-    num remaining = 0;
-    num spent = 0;
-    num earned = 0;
-    for (final item in _records) {
-      final stats = calculateWarehouseStats(
-        item: item,
-        dashboard: _warehouseDashboard,
-        linkedIncomeRecords: _linkedIncomeRecords,
-      );
-      remaining += stats['remaining'] ?? 0;
-      spent += stats['spent'] ?? 0;
-      earned += stats['earned'] ?? 0;
-    }
-    return {'remaining': remaining, 'spent': spent, 'earned': earned};
   }
 
   String _formatNumber(num value) {
@@ -214,7 +213,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${_formatNumber(_totalAmount)} ₴',
+                    '${_formatNumber(_totalAmountCache)} ₴',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 26,
@@ -363,7 +362,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   }
 
   Widget _buildWarehouseStats() {
-    final totals = _warehouseTotals;
+    final totals = _warehouseStatsCache.totals;
     final spent = totals['spent'] ?? 0;
     final earned = totals['earned'] ?? 0;
     final profit = earned - spent;

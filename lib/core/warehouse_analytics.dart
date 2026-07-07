@@ -1,4 +1,3 @@
-import '../models/dashboard.dart';
 import '../models/sheet_record.dart';
 
 class LinkedIncomeRecord {
@@ -152,8 +151,6 @@ num parseIncomeAmount(
     }
   }
 
-  print('DEBUG RAW VALUES: ${record.values}');
-
   const extendedAmountKeywords = [...amountKeywords, 'грн'];
 
   final fields = recordFieldMap(record, dashboardFields);
@@ -168,50 +165,4 @@ num parseIncomeAmount(
     }
   }
   return 0;
-}
-
-Map<String, num> calculateWarehouseStats({
-  required SheetRecord item,
-  required Dashboard dashboard,
-  required List<LinkedIncomeRecord> linkedIncomeRecords,
-}) {
-  final fields = recordFieldMap(item, dashboard.fields);
-  final bought = parseWarehouseNum(fields['Кількість']);
-  final spent = parseWarehouseNum(fields['Загальні витрати']);
-
-  final itemId = normalizeWarehouseItemId(item.dateTime);
-
-  final linkedSales = linkedIncomeRecords.where(
-    (record) =>
-        normalizeWarehouseItemId(parseWarehouseItemId(record.fields)) == itemId,
-  );
-
-  num sold = 0;
-  num earned = 0;
-  for (final sale in linkedSales) {
-    sold += parseSoldQuantity(sale.fields);
-    final incomeFields =
-        sale.headers.length > 1 ? sale.headers.sublist(1) : const <String>[];
-    earned += parseIncomeAmount(
-      sale.record,
-      incomeFields,
-      headers: sale.headers,
-    );
-  }
-
-  print(
-    'DEBUG STATS: Item: ${fields['Назва']} | Sold: $sold | Earned: $earned',
-  );
-
-  final remaining = bought - sold;
-  final costPerUnit = bought > 0 ? spent / bought : 0;
-
-  return {
-    'bought': bought,
-    'spent': spent,
-    'sold': sold,
-    'earned': earned,
-    'remaining': remaining,
-    'costPerUnit': costPerUnit,
-  };
 }
