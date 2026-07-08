@@ -108,7 +108,19 @@ class WelcomeScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(Icons.analytics_outlined, size: 90, color: Colors.blueAccent),
+                Center(
+                  child: SizedBox(
+                    width: 140,
+                    height: 140,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset(
+                        'assets/Icon_phone.png',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 const Text(
                   'FinLapa',
@@ -116,7 +128,7 @@ class WelcomeScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: 1),
                 ),
                 const Text(
-                  'Автономна система обліку',
+                  'Система обліку',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 16, color: Colors.black54),
                 ),
