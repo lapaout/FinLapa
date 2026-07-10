@@ -52,6 +52,8 @@ class WarehouseItemCard extends StatelessWidget {
           children: [
             Text(
               name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 8),

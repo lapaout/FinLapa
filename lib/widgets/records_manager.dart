@@ -388,6 +388,8 @@ class _RecordsManagerState extends State<RecordsManager> {
                   flex: 2,
                   child: Text(
                     '$headerName:',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.black54,
                       fontSize: 14,
@@ -399,6 +401,8 @@ class _RecordsManagerState extends State<RecordsManager> {
                   flex: 3,
                   child: Text(
                     value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontWeight: i == 1 || isMoney ? FontWeight.bold : FontWeight.w600,
                       fontSize: i == 1 || isMoney ? 16 : 15,
@@ -573,35 +577,41 @@ class _RecordsManagerState extends State<RecordsManager> {
           onChanged: _onSearchChanged,
         ),
         const SizedBox(height: 16),
-        if (_isUpdating)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(color: widget.color),
-            ),
-          ),
         Expanded(
-          child: ValueListenableBuilder<List<Map<String, dynamic>>>(
-            valueListenable: _filteredRecordsNotifier,
-            builder: (context, filteredRecords, _) {
-              if (filteredRecords.isEmpty) {
-                return const Center(
-                  child: Text(
-                    'Записів не знайдено за цими критеріями',
-                    style: TextStyle(color: Colors.grey, fontSize: 15),
+          child: Column(
+            children: [
+              if (_isUpdating)
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Center(
+                    child: CircularProgressIndicator(color: widget.color),
                   ),
-                );
-              }
+                ),
+              Expanded(
+                child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+                  valueListenable: _filteredRecordsNotifier,
+                  builder: (context, filteredRecords, _) {
+                    if (filteredRecords.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'Записів не знайдено за цими критеріями',
+                          style: TextStyle(color: Colors.grey, fontSize: 15),
+                        ),
+                      );
+                    }
 
-              return ListView.builder(
-                itemCount: filteredRecords.length,
-                cacheExtent: 500,
-                addAutomaticKeepAlives: false,
-                itemBuilder: (context, index) {
-                  return _buildRecordTile(filteredRecords[index]);
-                },
-              );
-            },
+                    return ListView.builder(
+                      itemCount: filteredRecords.length,
+                      cacheExtent: 500,
+                      addAutomaticKeepAlives: false,
+                      itemBuilder: (context, index) {
+                        return _buildRecordTile(filteredRecords[index]);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
       ],

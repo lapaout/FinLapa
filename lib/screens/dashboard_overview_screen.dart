@@ -1,3 +1,5 @@
+import 'dart:math' show max;
+
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -9,6 +11,18 @@ import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
 import '../models/sheet_record.dart';
+
+class _OverviewTableColumn {
+  const _OverviewTableColumn({
+    required this.label,
+    required this.isElastic,
+    required this.valueAt,
+  });
+
+  final String label;
+  final bool isElastic;
+  final String Function(List<String> row, int rowIndex) valueAt;
+}
 
 class DashboardOverviewScreen extends StatefulWidget {
   final GoogleSignInAccount user;
@@ -144,6 +158,73 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
       if (amount != null) total += amount;
     }
     return total;
+  }
+
+  SheetRecord? _recordForTableIndex(int displayIndex) {
+    if (_records.isEmpty) return null;
+    final recordIndex = _records.length - 1 - displayIndex;
+    if (recordIndex < 0 || recordIndex >= _records.length) return null;
+    return _records[recordIndex];
+  }
+
+  WarehouseStats _statsForRecord(SheetRecord item) {
+    return _warehouseStatsCache.statsFor(item) ??
+        calculateWarehouseStatsIndexed(
+          item: item,
+          dashboard: _warehouseDashboard,
+          salesIndex: _warehouseStatsCache.salesIndex,
+        );
+  }
+
+  String _headerLabelAt(int columnIndex) {
+    if (_headers.isNotEmpty && columnIndex < _headers.length) {
+      return _headers[columnIndex];
+    }
+    return 'Колонка ${columnIndex + 1}';
+  }
+
+  bool _isElasticTextColumn(String header) {
+    final normalized = header.toLowerCase();
+    return normalized.contains('назв') ||
+        normalized.contains('товар') ||
+        normalized.contains('нотат') ||
+        normalized.contains('note') ||
+        normalized.contains('комент') ||
+        normalized.contains('опис') ||
+        normalized.contains('категор');
+  }
+
+  List<_OverviewTableColumn> _buildTableColumns() {
+    final visibleIndexes = _visibleColumnIndexes();
+    final columns = <_OverviewTableColumn>[];
+
+    for (final columnIndex in visibleIndexes) {
+      final header = _headerLabelAt(columnIndex);
+      columns.add(
+        _OverviewTableColumn(
+          label: header,
+          isElastic: _isElasticTextColumn(header),
+          valueAt: (row, _) => columnIndex < row.length ? row[columnIndex] : '',
+        ),
+      );
+
+      if (widget.isWarehouse && header == 'Кількість') {
+        columns.add(
+          _OverviewTableColumn(
+            label: 'Залишок',
+            isElastic: false,
+            valueAt: (row, rowIndex) {
+              final record = _recordForTableIndex(rowIndex);
+              if (record == null) return '—';
+              final remaining = _statsForRecord(record)['remaining'] ?? 0;
+              return remaining.toString();
+            },
+          ),
+        );
+      }
+    }
+
+    return columns;
   }
 
   String _formatNumber(num value) {
@@ -435,8 +516,12 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     );
   }
 
-  static const double _tableRowHeight = 48;
-  static const double _tableColumnWidth = 140;
+  static const double _cellHorizontalPadding = 16;
+  static const double _compactColumnMinWidth = 56;
+  static const double _compactColumnSafetyBuffer = 20;
+  static const double _elasticColumnMinWidth = 160;
+  static const int _elasticFullTextTapMinLength = 25;
+  static const double _fullTextDialogMaxWidth = 480;
 
   List<int> _visibleColumnIndexes() {
     if (_headers.isNotEmpty) {
@@ -452,73 +537,168 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     return List.generate(columnCount, (i) => i);
   }
 
-  List<String> _columnLabels(List<int> visibleIndexes) {
-    return visibleIndexes.map((i) {
-      if (_headers.isNotEmpty && i < _headers.length) {
-        return _headers[i];
-      }
-      return 'Колонка ${i + 1}';
-    }).toList();
+  double _measureTextWidth(String text, {bool bold = false}) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text.isEmpty ? '—' : text,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 2,
+    )..layout();
+    return painter.size.width;
   }
 
-  Widget _buildTableHeaderRow(List<String> columns) {
-    return Container(
-      height: _tableRowHeight,
-      color: widget.dashboardColor.withOpacity(0.08),
-      child: Row(
-        children: columns
-            .map(
-              (header) => SizedBox(
-                width: _tableColumnWidth,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      header,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            )
-            .toList(),
+  Map<int, double> _computeFixedColumnWidths(List<_OverviewTableColumn> columns) {
+    final widths = <int, double>{};
+
+    for (var columnIndex = 0; columnIndex < columns.length; columnIndex++) {
+      final column = columns[columnIndex];
+      if (column.isElastic) continue;
+
+      var maxContentWidth = _measureTextWidth(column.label, bold: true);
+      for (var rowIndex = 0; rowIndex < _allData.length; rowIndex++) {
+        final display = column.valueAt(_allData[rowIndex], rowIndex).trim();
+        maxContentWidth = max(
+          maxContentWidth,
+          _measureTextWidth(display.isEmpty ? '—' : display),
+        );
+      }
+
+      widths[columnIndex] = max(
+        maxContentWidth + _cellHorizontalPadding + _compactColumnSafetyBuffer,
+        _compactColumnMinWidth,
+      );
+    }
+
+    return widths;
+  }
+
+  double _resolveTableWidth({
+    required double viewportWidth,
+    required List<_OverviewTableColumn> columns,
+    required Map<int, double> fixedColumnWidths,
+  }) {
+    final fixedTotal = fixedColumnWidths.values.fold<double>(0, (sum, width) => sum + width);
+    final elasticCount = columns.where((column) => column.isElastic).length;
+    final elasticReserve = elasticCount > 0 ? _elasticColumnMinWidth : 0.0;
+    return max(viewportWidth, fixedTotal + elasticReserve);
+  }
+
+  void _showFullTextPopup(String text) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _fullTextDialogMaxWidth),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 15, height: 1.4),
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildTableDataRow(List<String> row, List<int> visibleIndexes) {
+  Widget _buildTableCell({
+    required String text,
+    required bool isHeader,
+    required bool isElastic,
+    double? fixedWidth,
+  }) {
+    final displayText = text.isEmpty ? '—' : text;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Align(
+        alignment: isElastic ? Alignment.centerLeft : Alignment.center,
+        child: Text(
+          displayText,
+          maxLines: isElastic ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: isElastic ? TextAlign.left : TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+
+    final isTappable = isElastic &&
+        !isHeader &&
+        text.trim().length > _elasticFullTextTapMinLength;
+
+    final cellBody = isTappable
+        ? GestureDetector(
+            onTap: () => _showFullTextPopup(text.trim()),
+            behavior: HitTestBehavior.opaque,
+            child: content,
+          )
+        : content;
+
+    if (isElastic) {
+      return Expanded(child: cellBody);
+    }
+
+    return SizedBox(width: fixedWidth, child: cellBody);
+  }
+
+  Widget _buildTableHeaderRow(
+    List<_OverviewTableColumn> columns,
+    Map<int, double> fixedColumnWidths,
+  ) {
     return Container(
-      height: _tableRowHeight,
+      constraints: const BoxConstraints(minHeight: 48),
+      color: widget.dashboardColor.withOpacity(0.08),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var columnIndex = 0; columnIndex < columns.length; columnIndex++)
+            _buildTableCell(
+              text: columns[columnIndex].label,
+              isHeader: true,
+              isElastic: columns[columnIndex].isElastic,
+              fixedWidth: fixedColumnWidths[columnIndex],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTableDataRow(
+    List<String> row,
+    int rowIndex,
+    List<_OverviewTableColumn> columns,
+    Map<int, double> fixedColumnWidths,
+  ) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(color: Colors.grey.shade200),
         ),
       ),
       child: Row(
-        children: visibleIndexes.map((colIndex) {
-          final value = colIndex < row.length ? row[colIndex] : '';
-          return SizedBox(
-            width: _tableColumnWidth,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  value.isEmpty ? '—' : value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var columnIndex = 0; columnIndex < columns.length; columnIndex++)
+            _buildTableCell(
+              text: columns[columnIndex].valueAt(row, rowIndex).trim(),
+              isHeader: false,
+              isElastic: columns[columnIndex].isElastic,
+              fixedWidth: fixedColumnWidths[columnIndex],
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }
@@ -533,9 +713,8 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
       );
     }
 
-    final visibleIndexes = _visibleColumnIndexes();
-    final columns = _columnLabels(visibleIndexes);
-    final tableWidth = columns.length * _tableColumnWidth;
+    final columns = _buildTableColumns();
+    final fixedColumnWidths = _computeFixedColumnWidths(columns);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -558,32 +737,45 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
               elevation: 1,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               clipBehavior: Clip.antiAlias,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: tableWidth,
-                  child: Column(
-                    children: [
-                      _buildTableHeaderRow(columns),
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: _allData.length,
-                          itemExtent: _tableRowHeight,
-                          cacheExtent: 500,
-                          addAutomaticKeepAlives: false,
-                          itemBuilder: (context, index) {
-                            return RepaintBoundary(
-                              child: _buildTableDataRow(
-                                _allData[index],
-                                visibleIndexes,
-                              ),
-                            );
-                          },
-                        ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tableWidth = _resolveTableWidth(
+                    viewportWidth: constraints.maxWidth,
+                    columns: columns,
+                    fixedColumnWidths: fixedColumnWidths,
+                  );
+
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: tableWidth,
+                      height: constraints.maxHeight,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildTableHeaderRow(columns, fixedColumnWidths),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: _allData.length,
+                              cacheExtent: 500,
+                              addAutomaticKeepAlives: false,
+                              itemBuilder: (context, index) {
+                                return RepaintBoundary(
+                                  child: _buildTableDataRow(
+                                    _allData[index],
+                                    index,
+                                    columns,
+                                    fixedColumnWidths,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
             ),
           ),

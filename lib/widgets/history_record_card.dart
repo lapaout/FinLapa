@@ -112,6 +112,8 @@ class HistoryRecordCard extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
                     '📦 Товар: $warehouseItemName | Продано: $soldQuantity шт.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Colors.teal.shade700,
                       fontWeight: FontWeight.w600,
@@ -153,6 +155,8 @@ class HistoryRecordCard extends StatelessWidget {
                         flex: 2,
                         child: Text(
                           '$header:',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Colors.black54, fontSize: 14),
                         ),
                       ),
@@ -160,6 +164,8 @@ class HistoryRecordCard extends StatelessWidget {
                         flex: 3,
                         child: Text(
                           value,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 15,
