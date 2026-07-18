@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -50,12 +52,15 @@ class _AppRootState extends State<AppRoot> {
 
   GoogleSignInAccount? _user;
   bool _isLoading = true;
+  StreamSubscription<GoogleSignInAccount?>? _userChangedSubscription;
+
   @override
   void initState() {
     super.initState();
     GoogleApiAuth.bind(_googleSignIn);
 
-    _googleSignIn.onCurrentUserChanged.listen((account) async {
+    _userChangedSubscription =
+        _googleSignIn.onCurrentUserChanged.listen((account) async {
       if (account != null) {
         try {
           await GoogleApiAuth.ensureScopesGranted();
@@ -81,6 +86,12 @@ class _AppRootState extends State<AppRoot> {
         setState(() { _isLoading = false; });
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _userChangedSubscription?.cancel();
+    super.dispose();
   }
 
   @override

@@ -9,9 +9,9 @@ class WarehouseLinkedInfoBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.teal.withOpacity(0.08),
+        color: Colors.teal.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.teal.withOpacity(0.25)),
+        border: Border.all(color: Colors.teal.withValues(alpha: 0.25)),
       ),
       child: Row(
         children: [

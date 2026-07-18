@@ -184,7 +184,7 @@ class _WorkspacePickerSheetState extends State<WorkspacePickerSheet> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: _spreadsheets.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final spreadsheet = _spreadsheets[index];
                   final isActive = spreadsheet.id == widget.activeSpreadsheetId;

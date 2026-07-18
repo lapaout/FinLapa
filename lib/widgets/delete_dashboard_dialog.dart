@@ -79,7 +79,7 @@ class _DeleteDashboardDialogState extends State<_DeleteDashboardDialog> {
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: Colors.redAccent,
-            disabledBackgroundColor: Colors.redAccent.withOpacity(0.4),
+            disabledBackgroundColor: Colors.redAccent.withValues(alpha: 0.4),
           ),
           onPressed: _canDelete ? () => Navigator.of(context).pop(true) : null,
           child: const Text('Видалити'),

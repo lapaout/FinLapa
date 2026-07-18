@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:finlapa/core/money_formatter.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -11,6 +12,8 @@ import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
 import '../widgets/history_record_card.dart';
+import '../widgets/offline_banner.dart';
+import '../utils/ui_helpers.dart';
 
 /// Період, за який рахується аналітика.
 enum AnalyticsPeriod {
@@ -264,16 +267,22 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
       // Записи доходів, прив'язані до складів (для обчислення продажів) — лише кеш.
       final linkedIncomeRecords = await _loadLinkedIncomeFromCache();
 
-      // 1. Транзакції доходів/витрат (лише кеш).
+      // 1. Транзакції доходів/витрат (лише кеш, читання паралельні).
+      final cashflowRecordsByDashboard = await Future.wait(
+        cashflowDashboards.map((dashboard) async {
+          final records = await _recordsRepository.getCachedRecords(
+            sheetTitle: dashboard.title,
+          );
+          return MapEntry(dashboard, records);
+        }),
+      );
+
       final transactions = <_Transaction>[];
       DateTime? earliest;
-      for (final dashboard in cashflowDashboards) {
-        final records = await _recordsRepository.getCachedRecords(
-          sheetTitle: dashboard.title,
-        );
-
+      for (final entry in cashflowRecordsByDashboard) {
+        final dashboard = entry.key;
         final isIncome = dashboard.type == Dashboard.typeIncome;
-        for (final record in records) {
+        for (final record in entry.value) {
           final row = record.values;
           if (row.isEmpty) continue;
 
@@ -297,19 +306,26 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
         }
       }
 
-      // 2. Поточний стан складів (витрачено на товар, залишки, продажі).
+      // 2. Поточний стан складів (витрачено на товар, залишки, продажі; читання паралельні).
       final salesIndex = WarehouseSalesIndex.build(linkedIncomeRecords);
+      final warehouseRecordsByDashboard = await Future.wait(
+        warehouseDashboards.map((dashboard) async {
+          final records = await _recordsRepository.getCachedRecords(
+            sheetTitle: dashboard.title,
+          );
+          return MapEntry(dashboard, records);
+        }),
+      );
+
       final warehouses = <_WarehouseStat>[];
-      for (final dashboard in warehouseDashboards) {
-        final records = await _recordsRepository.getCachedRecords(
-          sheetTitle: dashboard.title,
-        );
+      for (final entry in warehouseRecordsByDashboard) {
+        final dashboard = entry.key;
 
         num frozen = 0;
         num remaining = 0;
         num sold = 0;
         num bought = 0;
-        for (final item in records) {
+        for (final item in entry.value) {
           final stats = calculateWarehouseStatsIndexed(
             item: item,
             dashboard: dashboard,
@@ -369,19 +385,20 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
         )
         .toList();
 
-    final linkedRecords = <LinkedIncomeRecord>[];
-    for (final dashboard in dashboards) {
-      final records = await _recordsRepository.getCachedRecords(
-        sheetTitle: dashboard.title,
-      );
-      final headers = await _recordsRepository.getSheetHeaders(dashboard.title);
-      for (final record in records) {
-        linkedRecords.add(
-          LinkedIncomeRecord(record: record, headers: headers),
+    final perDashboard = await Future.wait(
+      dashboards.map((dashboard) async {
+        final records = await _recordsRepository.getCachedRecords(
+          sheetTitle: dashboard.title,
         );
-      }
-    }
-    return linkedRecords;
+        final headers =
+            await _recordsRepository.getSheetHeaders(dashboard.title);
+        return records
+            .map((record) => LinkedIncomeRecord(record: record, headers: headers))
+            .toList();
+      }),
+    );
+
+    return perDashboard.expand((records) => records).toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -700,49 +717,6 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Форматування
-  // ---------------------------------------------------------------------------
-
-  /// Форматує суму з пробілами тисяч, напр. `15 000 ₴`.
-  String _formatMoney(num value) {
-    final rounded = value.round();
-    final isNegative = rounded < 0;
-    final digits = rounded.abs().toString();
-
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-
-    return '${isNegative ? '-' : ''}${buffer.toString()} ₴';
-  }
-
-  /// Форматує кількість штук з пробілами тисяч, напр. `1 250 шт`.
-  String _formatUnits(num value) {
-    final rounded = value.round();
-    final digits = rounded.abs().toString();
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-    return '${rounded < 0 ? '-' : ''}${buffer.toString()} шт';
-  }
-
-  /// Короткий формат для осі Y графіка: `15k`, `1.2M`.
-  String _shortNumber(num value) {
-    final abs = value.abs();
-    if (abs >= 1000000) {
-      return '${(value / 1000000).toStringAsFixed(abs >= 10000000 ? 0 : 1)}M';
-    }
-    if (abs >= 1000) {
-      return '${(value / 1000).toStringAsFixed(abs >= 10000 ? 0 : 1)}k';
-    }
-    return value.toStringAsFixed(0);
-  }
-
   String _percent(num part, num total) {
     if (total <= 0) return '0';
     return (part / total * 100).toStringAsFixed(0);
@@ -773,7 +747,8 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_isOffline) _buildOfflineBanner(),
+          if (_isOffline)
+            const OfflineBanner(variant: OfflineBannerVariant.cached),
           _buildFiltersPanel(),
           const SizedBox(height: 20),
           _buildSummaryCards(),
@@ -829,34 +804,6 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildOfflineBanner() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-      decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withOpacity(0.4)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.cloud_off, color: Colors.orange, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Офлайн: показано збережені дані з кешу',
-              style: TextStyle(
-                color: Colors.orange.shade900,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1093,7 +1040,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
+              color: color.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Icon(icon, color: color, size: 16),
@@ -1114,7 +1061,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
-              '$sign${_formatMoney(value)}',
+              '$sign${MoneyFormatter.formatMoney(value)}',
               maxLines: 1,
               style: TextStyle(
                 fontSize: 15,
@@ -1166,7 +1113,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
                           getTooltipColor: (_) => Colors.blueGrey.shade800,
                           getTooltipItem: (group, _, rod, _) {
                             return BarTooltipItem(
-                              _formatMoney(rod.toY),
+                              MoneyFormatter.formatMoney(rod.toY),
                               const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600,
@@ -1193,7 +1140,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
                               return SideTitleWidget(
                                 meta: meta,
                                 child: Text(
-                                  _shortNumber(value),
+                                  MoneyFormatter.shortNumber(value),
                                   style: TextStyle(
                                     fontSize: 10,
                                     color: Colors.grey.shade600,
@@ -1487,13 +1434,10 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
   ) {
     final total = slices.fold<num>(0, (sum, slice) => sum + slice.amount);
 
-    showModalBottomSheet<void>(
+    showFinLapaBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) {
         return DraggableScrollableSheet(
           expand: false,
@@ -1531,7 +1475,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
                         ),
                       ),
                       Text(
-                        _formatMoney(total),
+                        MoneyFormatter.formatMoney(total),
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -1583,7 +1527,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  _formatMoney(slice.amount),
+                                  MoneyFormatter.formatMoney(slice.amount),
                                   style: const TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w700,
@@ -1661,13 +1605,10 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
     final warehouses = _data.warehouses;
     if (warehouses.isEmpty) return;
 
-    showModalBottomSheet<void>(
+    showFinLapaBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) {
         return DraggableScrollableSheet(
           expand: false,
@@ -1756,7 +1697,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
               width: 12,
               height: 12,
               decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.25),
+                color: Colors.grey.withValues(alpha: 0.25),
                 borderRadius: BorderRadius.circular(3),
               ),
             ),
@@ -1823,7 +1764,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
                   Container(
                     height: 12,
                     width: fullWidth,
-                    color: warehouse.color.withOpacity(0.15),
+                    color: warehouse.color.withValues(alpha: 0.15),
                   ),
                   Container(
                     height: 12,
@@ -1841,21 +1782,21 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
             Expanded(
               child: _buildWarehouseMetric(
                 'Залишок',
-                _formatUnits(warehouse.remainingUnits),
+                MoneyFormatter.formatUnits(warehouse.remainingUnits),
                 warehouse.color,
               ),
             ),
             Expanded(
               child: _buildWarehouseMetric(
                 'Продано',
-                _formatUnits(warehouse.soldUnits),
+                MoneyFormatter.formatUnits(warehouse.soldUnits),
                 Colors.grey.shade600,
               ),
             ),
             Expanded(
               child: _buildWarehouseMetric(
                 'Витрачено',
-                _formatMoney(warehouse.frozen),
+                MoneyFormatter.formatMoney(warehouse.frozen),
                 _warehouseColor,
                 alignEnd: true,
               ),
@@ -1920,7 +1861,7 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
             ),
           ),
         ),
-        if (trailing != null) trailing,
+        ?trailing,
       ],
     );
   }
@@ -1929,10 +1870,10 @@ class _AnalyticsOverviewScreenState extends State<AnalyticsOverviewScreen>
     return BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: Colors.grey.withOpacity(0.15)),
+      border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.05),
+          color: Colors.black.withValues(alpha: 0.05),
           blurRadius: 12,
           offset: const Offset(0, 4),
         ),

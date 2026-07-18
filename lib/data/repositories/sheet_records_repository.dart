@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../core/data_result.dart';
 import '../../core/network_exception.dart';
+import '../../core/sheet_cache_mutations.dart';
 import '../../models/sheet_data.dart';
 import '../../models/sheet_record.dart';
 import '../sources/local_cache_data_source.dart';
@@ -61,19 +63,19 @@ class SheetRecordsRepository {
       final sheetData = SheetData.fromSheetRows(rows);
       return DataResult.network(sheetData);
     } catch (error, stackTrace) {
-      print('NETWORK ERROR [SheetRecordsRepository]: $error');
-      print('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository]: $error');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
 
       if (isNetworkError(error)) {
         final cached = await _cache.getSheetData(sheetTitle);
-        print(
+        debugPrint(
           'NETWORK ERROR [SheetRecordsRepository]: offline fallback, '
           'cache records=${cached.records.length}',
         );
         return DataResult.cache(cached, error: classifyError(error));
       }
 
-      print(
+      debugPrint(
         'NETWORK ERROR [SheetRecordsRepository]: non-network error, '
         'returning empty sheet',
       );
@@ -119,10 +121,10 @@ class SheetRecordsRepository {
         [recordDate, ...values.map((e) => e.toString())],
         columns: resolvedColumns,
       );
-      print('NETWORK OK [appendRecord]: appended to "$sheetTitle"');
+      debugPrint('NETWORK OK [appendRecord]: appended to "$sheetTitle"');
     } catch (error, stackTrace) {
-      print('NETWORK ERROR [SheetRecordsRepository]: $error');
-      print('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository]: $error');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
       rethrow;
     }
   }
@@ -142,10 +144,10 @@ class SheetRecordsRepository {
         newValues: values,
       );
       await _patchCachedRow(sheetTitle, rowIndex, values);
-      print('NETWORK OK [updateRecord]: row $rowIndex in "$sheetTitle"');
+      debugPrint('NETWORK OK [updateRecord]: row $rowIndex in "$sheetTitle"');
     } catch (error, stackTrace) {
-      print('NETWORK ERROR [SheetRecordsRepository]: $error');
-      print('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository]: $error');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
       rethrow;
     }
   }
@@ -164,10 +166,10 @@ class SheetRecordsRepository {
       );
 
       await _deleteCachedRow(sheetTitle, rowIndex);
-      print('NETWORK OK [deleteRecord]: row $rowIndex in "$sheetTitle"');
+      debugPrint('NETWORK OK [deleteRecord]: row $rowIndex in "$sheetTitle"');
     } catch (error, stackTrace) {
-      print('NETWORK ERROR [SheetRecordsRepository]: $error');
-      print('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository]: $error');
+      debugPrint('NETWORK ERROR [SheetRecordsRepository] stack: $stackTrace');
       rethrow;
     }
   }
@@ -187,37 +189,14 @@ class SheetRecordsRepository {
     List<String>? columns,
   }) async {
     final rows = await _cache.getSheetRows(sheetTitle);
-    final newRow = row.map((e) => e.toString()).toList();
-
-    if (rows.isEmpty) {
-      final resolvedColumns = columns ??
-          List.generate(
-            newRow.length > 1 ? newRow.length - 1 : 0,
-            (i) => 'Поле ${i + 1}',
-          );
-      await _cache.saveSheetRows(
-        sheetTitle,
-        [
-          ['Дата і час', ...resolvedColumns],
-          newRow,
-        ],
-      );
-      return;
-    }
-
-    rows.add(newRow);
-    await _cache.saveSheetRows(sheetTitle, rows);
+    final updated = SheetCacheMutations.appendRow(rows, row, columns: columns);
+    await _cache.saveSheetRows(sheetTitle, updated);
   }
 
   Future<void> _deleteCachedRow(String sheetTitle, int rowIndex) async {
     final rows = await _cache.getSheetRows(sheetTitle);
-    if (rows.isEmpty) return;
-
-    final dataRowIndex = rowIndex - 1;
-    if (dataRowIndex < 1 || dataRowIndex >= rows.length) return;
-
-    rows.removeAt(dataRowIndex);
-    await _cache.saveSheetRows(sheetTitle, rows);
+    final updated = SheetCacheMutations.deleteRow(rows, rowIndex);
+    await _cache.saveSheetRows(sheetTitle, updated);
   }
 
   Future<void> _patchCachedRow(
@@ -226,13 +205,8 @@ class SheetRecordsRepository {
     List<String> values,
   ) async {
     final rows = await _cache.getSheetRows(sheetTitle);
-    if (rows.isEmpty) return;
-
-    final dataRowIndex = rowIndex - 1;
-    if (dataRowIndex < 1 || dataRowIndex >= rows.length) return;
-
-    rows[dataRowIndex] = values;
-    await _cache.saveSheetRows(sheetTitle, rows);
+    final updated = SheetCacheMutations.patchRow(rows, rowIndex, values);
+    await _cache.saveSheetRows(sheetTitle, updated);
   }
 
   /// Конвертує [SheetData] у формат UI EditTab / RecordsManager.

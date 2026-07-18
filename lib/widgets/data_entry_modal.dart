@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../core/warehouse_picker_data.dart';
 import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
+import '../utils/ui_helpers.dart';
 import 'adaptive_picker_field.dart';
 
 class DataEntryModal extends StatefulWidget {
@@ -53,7 +54,7 @@ class _DataEntryModalState extends State<DataEntryModal> {
   List<String> _orderedWarehouseTitles = [];
   String? _selectedWarehouseTitle;
   String? _selectedWarehouseItemId;
-  List<Map<String, dynamic>> _cartItems = [];
+  final List<Map<String, dynamic>> _cartItems = [];
 
   List<String> get _warehouseTitles => _orderedWarehouseTitles;
 
@@ -152,10 +153,10 @@ class _DataEntryModalState extends State<DataEntryModal> {
   }
 
   Map<String, dynamic> _captureFormSnapshot() {
+    final extraFields = _readExtraFieldsFromUi();
     return {
       'fields': _readAllFieldValuesFromUi(),
-      if (_readExtraFieldsFromUi() case final extraFields?)
-        'extraFields': extraFields,
+      ...? (extraFields != null ? {'extraFields': extraFields} : null),
     };
   }
 
@@ -445,12 +446,9 @@ class _DataEntryModalState extends State<DataEntryModal> {
   }
 
   Future<void> _openQuickProductSearchSheet() async {
-    final selected = await showModalBottomSheet<WarehousePickerItem>(
+    final selected = await showFinLapaBottomSheet<WarehousePickerItem>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => _GlobalProductSearchSheet(
         items: _warehouseItems,
         labelBuilder: _productSearchResultLabel,
@@ -803,7 +801,7 @@ class _GlobalProductSearchSheetState extends State<_GlobalProductSearchSheet> {
                   builder: (context, query, _) {
                     return ValueListenableBuilder<List<WarehousePickerItem>>(
                       valueListenable: _visibleItemsNotifier,
-                      builder: (context, visibleItems, __) =>
+                      builder: (context, visibleItems, _) =>
                           _buildResultsArea(query, visibleItems),
                     );
                   },

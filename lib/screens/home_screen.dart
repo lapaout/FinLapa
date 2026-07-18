@@ -3,12 +3,12 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../data/repositories/settings_repository.dart';
 import '../models/finlapa_spreadsheet.dart';
+import '../utils/ui_helpers.dart';
 import '../widgets/settings_modal.dart';
 import '../widgets/workspace_picker_sheet.dart';
+import '../core/dashboard_type.dart';
 import 'analytics_overview_screen.dart';
-import 'tabs/expense_tab.dart';
-import 'tabs/income_tab.dart';
-import 'tabs/warehouse_tab.dart';
+import 'tabs/base_dashboard_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   final GoogleSignInAccount user;
@@ -74,11 +74,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSettingsMenu() {
-    showModalBottomSheet(
+    showFinLapaBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => SettingsModal(
         settingsRepository: _settingsRepository,
         initialIncome: _showIncome,
@@ -91,12 +88,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openWorkspacePicker() {
-    showModalBottomSheet(
+    showFinLapaBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.55,
@@ -137,9 +131,10 @@ class _HomeScreenState extends State<HomeScreen> {
     var tabIndex = 0;
 
     if (_showIncome) {
-      activeTabs.add(IncomeTab(
+      activeTabs.add(BaseDashboardTab(
         key: ValueKey('income-$workspaceKey'),
         user: widget.user,
+        type: DashboardType.income,
         isActive: safeIndex == tabIndex,
       ));
       navItems.add(
@@ -148,9 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
       tabIndex++;
     }
     if (_showExpense) {
-      activeTabs.add(ExpenseTab(
+      activeTabs.add(BaseDashboardTab(
         key: ValueKey('expense-$workspaceKey'),
         user: widget.user,
+        type: DashboardType.expense,
         isActive: safeIndex == tabIndex,
       ));
       navItems.add(
@@ -159,9 +155,10 @@ class _HomeScreenState extends State<HomeScreen> {
       tabIndex++;
     }
     if (_showWarehouse) {
-      activeTabs.add(WarehouseTab(
+      activeTabs.add(BaseDashboardTab(
         key: ValueKey('warehouse-$workspaceKey'),
         user: widget.user,
+        type: DashboardType.warehouse,
         isActive: safeIndex == tabIndex,
       ));
       navItems.add(

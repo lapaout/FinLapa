@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../core/dashboard_reorder.dart';
 import '../../core/data_result.dart';
 import '../../core/network_exception.dart';
 import '../../core/warehouse_dashboard_order.dart';
@@ -27,12 +29,12 @@ class DashboardRepository {
       await _cache.saveDashboards(dashboards);
       return DataResult.network(dashboards);
     } catch (error, stackTrace) {
-      print('NETWORK ERROR [getDashboards]: $error');
-      print('NETWORK ERROR [getDashboards] stack: $stackTrace');
+      debugPrint('NETWORK ERROR [getDashboards]: $error');
+      debugPrint('NETWORK ERROR [getDashboards] stack: $stackTrace');
 
       if (isNetworkError(error)) {
         final cached = await _cache.getDashboards();
-        print(
+        debugPrint(
           'NETWORK ERROR [getDashboards]: offline fallback, '
           'cache size=${cached.length}',
         );
@@ -40,7 +42,7 @@ class DashboardRepository {
       }
 
       // Як legacy readAppConfig: помилка API / відсутній App_Config → порожній список.
-      print(
+      debugPrint(
         'NETWORK ERROR [getDashboards]: non-network error, returning empty list',
       );
       await _cache.saveDashboards([]);
@@ -77,53 +79,22 @@ class DashboardRepository {
     // 1. Свіжі дані з хмари (offline → throw, кеш не чіпаємо).
     final latestDashboards = await _readLatestDashboardsOnline(user: user);
 
-    // Активні дашборди цього типу зі СВІЖОГО хмарного списку.
-    final activeOfType = latestDashboards
-        .where(
-          (dashboard) =>
-              dashboard.type == type && !dashboard.isArchived && !dashboard.isHidden,
-        )
-        .toList();
-    final byTitle = {
-      for (final dashboard in activeOfType) dashboard.title: dashboard,
-    };
-
-    // 2. Новий порядок: спершу за списком з UI (лише ті, що ще існують у хмарі),
-    //    потім будь-які активні цього типу, яких UI не знав — щоб не загубити їх.
-    final reordered = <Dashboard>[];
-    final usedTitles = <String>{};
-    for (final title in orderedActiveTitles) {
-      final dashboard = byTitle[title];
-      if (dashboard != null && usedTitles.add(title)) {
-        reordered.add(dashboard);
-      }
-    }
-    for (final dashboard in activeOfType) {
-      if (!usedTitles.contains(dashboard.title)) {
-        reordered.add(dashboard);
-      }
-    }
-
-    // Повертаємо переставлені активні дашборди на ТІ САМІ позиції-слоти,
-    // не чіпаючи інші типи та архівні записи зі свіжого списку.
-    final updatedDashboards = <Dashboard>[];
-    var cursor = 0;
-    for (final dashboard in latestDashboards) {
-      if (dashboard.type == type && !dashboard.isArchived && !dashboard.isHidden) {
-        updatedDashboards.add(reordered[cursor]);
-        cursor++;
-      } else {
-        updatedDashboards.add(dashboard);
-      }
-    }
+    // 2. Переставляємо активні дашборди цього типу у свіжому списку згідно з
+    //    UI, зберігаючи позиції записів, яких UI не знав (чиста логіка — див.
+    //    dashboard_reorder.dart, покрита тестами).
+    final updatedDashboards = mergeReorderedDashboards(
+      latestDashboards: latestDashboards,
+      type: type,
+      orderedActiveTitles: orderedActiveTitles,
+    );
 
     await SheetsApi.writeAppConfig(user: user, dashboards: updatedDashboards);
 
     // 3. Тільки після успіху — оновлюємо локальний кеш.
     await _cache.saveDashboards(updatedDashboards);
-    print(
+    debugPrint(
       'NETWORK OK [reorderDashboards]: type=$type, '
-      'active=${reordered.length}, total=${updatedDashboards.length}',
+      'total=${updatedDashboards.length}',
     );
     return updatedDashboards;
   }
@@ -142,7 +113,7 @@ class DashboardRepository {
       sheetName: SheetsApi.appConfigSheetName,
     );
     final dashboards = Dashboard.listFromSheetRows(rows);
-    print(
+    debugPrint(
       'NETWORK OK [readLatestOnline]: fetched ${dashboards.length} dashboards from cloud',
     );
     return dashboards;
@@ -166,7 +137,7 @@ class DashboardRepository {
 
     // 3. Тільки після успіху — оновлюємо локальний кеш.
     await _cache.saveDashboards(updatedDashboards);
-    print(
+    debugPrint(
       'NETWORK OK [createDashboard]: added "${dashboard.title}", '
       'total=${updatedDashboards.length}',
     );
@@ -214,7 +185,7 @@ class DashboardRepository {
     if (oldTitle != newTitle) {
       await _cache.migrateSheetCache(oldTitle, newTitle);
     }
-    print('NETWORK OK [updateDashboard]: "$oldTitle" → "$newTitle"');
+    debugPrint('NETWORK OK [updateDashboard]: "$oldTitle" → "$newTitle"');
     return updatedDashboards;
   }
 
@@ -254,7 +225,7 @@ class DashboardRepository {
     // 3. Тільки після успіху — кеш конфігу + кеш записів аркуша.
     await _cache.saveDashboards(updatedDashboards);
     await _cache.deleteSheetCache(title);
-    print(
+    debugPrint(
       'NETWORK OK [deleteDashboard]: deleted "$title", '
       'remaining=${updatedDashboards.length}',
     );

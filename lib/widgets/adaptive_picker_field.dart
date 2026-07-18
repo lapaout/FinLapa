@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../utils/ui_helpers.dart';
+
 class PickerOption<T> {
   final T? value;
   final String label;
@@ -55,7 +57,7 @@ class AdaptivePickerField<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!_useSearch) {
       return DropdownButtonFormField<T?>(
-        value: _hasSelectedValue ? value : null,
+        initialValue: _hasSelectedValue ? value : null,
         decoration: decoration,
         hint: hintText != null ? Text(hintText!) : null,
         isExpanded: true,
@@ -96,12 +98,9 @@ class AdaptivePickerField<T> extends StatelessWidget {
   }
 
   Future<void> _openSearchSheet(BuildContext context) async {
-    final result = await showModalBottomSheet<_PickerSelection<T>?>(
+    final result = await showFinLapaBottomSheet<_PickerSelection<T>?>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => _SearchPickerSheet<T>(
         options: options,
         hintText: hintText,

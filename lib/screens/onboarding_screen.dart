@@ -189,7 +189,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _spreadsheets.isEmpty ? 1 : _spreadsheets.length + 1,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           if (_spreadsheets.isEmpty) {
             return Card(
@@ -228,7 +228,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             return ListTile(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.blueAccent.withOpacity(0.4)),
+                side: BorderSide(color: Colors.blueAccent.withValues(alpha: 0.4)),
               ),
               leading: const Icon(Icons.add_circle_outline, color: Colors.blueAccent),
               title: const Text(

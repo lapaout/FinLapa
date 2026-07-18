@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../core/ui_field_filter.dart';
 import '../core/warehouse_analytics.dart';
 import '../data/repositories/sheet_records_repository.dart';
+import '../utils/ui_helpers.dart';
 import 'record_edit_modal.dart';
 
 class RecordsManager extends StatefulWidget {
@@ -159,12 +161,9 @@ class _RecordsManagerState extends State<RecordsManager> {
       return;
     }
 
-    showModalBottomSheet(
+    showFinLapaBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => RecordEditModal(
         headers: widget.headers,
         rowData: row,
@@ -184,7 +183,7 @@ class _RecordsManagerState extends State<RecordsManager> {
               item['row'] = newValues;
             });
 
-            if (mounted) {
+            if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('✅ Запис оновлено!'),
@@ -195,7 +194,7 @@ class _RecordsManagerState extends State<RecordsManager> {
 
             widget.onRecordUpdated(rowIndex, newValues);
           } catch (e) {
-            if (mounted) {
+            if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('❌ Помилка: $e'),
@@ -216,7 +215,7 @@ class _RecordsManagerState extends State<RecordsManager> {
               rowIndex: rowIndex,
             );
 
-            if (mounted) {
+            if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('✅ Запис видалено'),
@@ -227,7 +226,7 @@ class _RecordsManagerState extends State<RecordsManager> {
 
             widget.onRecordDeleted?.call(rowIndex);
           } catch (e) {
-            if (mounted) {
+            if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('❌ Помилка: $e'),
@@ -275,8 +274,10 @@ class _RecordsManagerState extends State<RecordsManager> {
       ),
     );
 
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !context.mounted) return;
 
+    final messenger = ScaffoldMessenger.of(context);
+    if (!mounted) return;
     setState(() => _isUpdating = true);
     try {
       await _recordsRepository.deleteRecord(
@@ -285,25 +286,23 @@ class _RecordsManagerState extends State<RecordsManager> {
         rowIndex: rowIndex,
       );
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Запис видалено'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('✅ Запис видалено'),
+          backgroundColor: Colors.green,
+        ),
+      );
 
       widget.onRecordDeleted?.call(rowIndex);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Помилка: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Помилка: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isUpdating = false);
     }
@@ -338,7 +337,7 @@ class _RecordsManagerState extends State<RecordsManager> {
       selected: isSelected,
       selectedColor: widget.color,
       labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontSize: 13),
-      side: BorderSide(color: widget.color.withOpacity(0.4)),
+      side: BorderSide(color: widget.color.withValues(alpha: 0.4)),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
       onSelected: (bool selected) {
         if (selected) {
@@ -546,7 +545,7 @@ class _RecordsManagerState extends State<RecordsManager> {
                     color: _dateFilter == 'Період' ? Colors.white : Colors.black87,
                     fontSize: 13,
                   ),
-                  side: BorderSide(color: widget.color.withOpacity(0.4)),
+                  side: BorderSide(color: widget.color.withValues(alpha: 0.4)),
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
                   onPressed: _selectCustomDateRange,
                 ),
@@ -602,7 +601,7 @@ class _RecordsManagerState extends State<RecordsManager> {
 
                     return ListView.builder(
                       itemCount: filteredRecords.length,
-                      cacheExtent: 500,
+                      scrollCacheExtent: const ScrollCacheExtent.pixels(500),
                       addAutomaticKeepAlives: false,
                       itemBuilder: (context, index) {
                         return _buildRecordTile(filteredRecords[index]);

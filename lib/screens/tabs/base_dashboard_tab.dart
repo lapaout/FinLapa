@@ -2,36 +2,44 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../core/dashboard_search_filter.dart';
+import '../../core/dashboard_type.dart';
+import '../../core/material_icon.dart';
 import '../../core/network_exception.dart';
 import '../../core/warehouse_picker_data.dart';
 import '../../core/warehouse_product_names.dart';
 import '../../data/repositories/dashboard_repository.dart';
 import '../../data/repositories/sheet_records_repository.dart';
 import '../../models/dashboard.dart';
-import '../../widgets/dashboard_search_bar.dart';
+import '../../utils/ui_helpers.dart';
 import '../../widgets/dashboard_manage_modal.dart';
+import '../../widgets/dashboard_search_bar.dart';
+import '../../widgets/data_entry_modal.dart';
 import '../../widgets/delete_dashboard_dialog.dart';
 import '../../widgets/module_builder_modal.dart';
-import '../../widgets/data_entry_modal.dart';
-import '../history_screen.dart';
+import '../../widgets/offline_banner.dart';
 import '../dashboard_overview_screen.dart';
+import '../history_screen.dart';
 import 'edit_tab.dart';
 
-class WarehouseTab extends StatefulWidget {
+/// Універсальний таб дашбордів для доходів, витрат і складів.
+class BaseDashboardTab extends StatefulWidget {
   final GoogleSignInAccount user;
+  final DashboardType type;
   final bool isActive;
 
-  const WarehouseTab({
+  const BaseDashboardTab({
     super.key,
     required this.user,
+    required this.type,
     this.isActive = false,
   });
 
   @override
-  State<WarehouseTab> createState() => _WarehouseTabState();
+  State<BaseDashboardTab> createState() => _BaseDashboardTabState();
 }
 
-class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClientMixin {
+class _BaseDashboardTabState extends State<BaseDashboardTab>
+    with AutomaticKeepAliveClientMixin {
   final DashboardRepository _dashboardRepository = DashboardRepository();
   final SheetRecordsRepository _recordsRepository = SheetRecordsRepository();
 
@@ -44,6 +52,9 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   String _searchQuery = '';
   late final TextEditingController _searchController;
 
+  DashboardType get _type => widget.type;
+  String get _sheetType => _type.sheetType;
+
   @override
   bool get wantKeepAlive => _hasLoadedOnce;
 
@@ -51,16 +62,22 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
 
   bool get _canReorder => !_isSearchActive && !_isOffline;
 
-  List<Dashboard> get _incomeDashboards =>
-      _dashboards.where((dashboard) => dashboard.type == Dashboard.typeIncome).toList();
+  List<Dashboard> get _incomeDashboards => _dashboards
+      .where((dashboard) => dashboard.type == Dashboard.typeIncome)
+      .toList();
 
-  List<Dashboard> get _expenseDashboards =>
-      _dashboards.where((dashboard) => dashboard.type == Dashboard.typeExpense).toList();
+  List<Dashboard> get _expenseDashboards => _dashboards
+      .where((dashboard) => dashboard.type == Dashboard.typeExpense)
+      .toList();
+
+  List<Dashboard> get _warehouseDashboards => _dashboards
+      .where((dashboard) => dashboard.type == Dashboard.typeWarehouse)
+      .toList();
 
   List<Dashboard> get _activeDashboards => _dashboards
       .where(
         (dashboard) =>
-            dashboard.type == Dashboard.typeWarehouse &&
+            dashboard.type == _sheetType &&
             !dashboard.isArchived &&
             !dashboard.isHidden,
       )
@@ -69,40 +86,51 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   List<Dashboard> get _hiddenDashboards => _dashboards
       .where(
         (dashboard) =>
-            dashboard.type == Dashboard.typeWarehouse &&
+            dashboard.type == _sheetType &&
             !dashboard.isArchived &&
             dashboard.isHidden,
       )
       .toList();
 
   List<Dashboard> get _archivedDashboards => _dashboards
-      .where((dashboard) => dashboard.type == Dashboard.typeWarehouse && dashboard.isArchived)
+      .where(
+        (dashboard) =>
+            dashboard.type == _sheetType && dashboard.isArchived,
+      )
       .toList();
 
-  List<Dashboard> get _filteredActiveDashboards => DashboardSearchFilter.filterWarehouses(
-        dashboards: _activeDashboards,
+  List<Dashboard> get _filteredActiveDashboards =>
+      _filterDashboards(_activeDashboards);
+
+  List<Dashboard> get _filteredHiddenDashboards =>
+      _filterDashboards(_hiddenDashboards);
+
+  List<Dashboard> _filterDashboards(List<Dashboard> dashboards) {
+    if (_type.usesWarehouseProductSearch) {
+      return DashboardSearchFilter.filterWarehouses(
+        dashboards: dashboards,
         query: _searchQuery,
         productNamesByWarehouse: _warehouseProductNames,
       );
+    }
+    return DashboardSearchFilter.filterByTitle(dashboards, _searchQuery);
+  }
 
-  List<Dashboard> get _filteredHiddenDashboards => DashboardSearchFilter.filterWarehouses(
-        dashboards: _hiddenDashboards,
-        query: _searchQuery,
-        productNamesByWarehouse: _warehouseProductNames,
-      );
-
-  List<Dashboard> _mergeWarehouseDashboards({
-    required List<Dashboard> activeWarehouse,
-    required List<Dashboard> hiddenWarehouse,
-    required List<Dashboard> archivedWarehouse,
+  List<Dashboard> _mergeReorderedDashboards({
+    required List<Dashboard> active,
+    required List<Dashboard> hidden,
+    required List<Dashboard> archived,
   }) {
-    return [
-      ..._incomeDashboards,
-      ..._expenseDashboards,
-      ...activeWarehouse,
-      ...hiddenWarehouse,
-      ...archivedWarehouse,
-    ];
+    final typedBlock = [...active, ...hidden, ...archived];
+
+    switch (_type) {
+      case DashboardType.income:
+        return [...typedBlock, ..._expenseDashboards, ..._warehouseDashboards];
+      case DashboardType.expense:
+        return [..._incomeDashboards, ...typedBlock, ..._warehouseDashboards];
+      case DashboardType.warehouse:
+        return [..._incomeDashboards, ..._expenseDashboards, ...typedBlock];
+    }
   }
 
   @override
@@ -121,7 +149,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   }
 
   @override
-  void didUpdateWidget(covariant WarehouseTab oldWidget) {
+  void didUpdateWidget(covariant BaseDashboardTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive && !_hasLoadedOnce) {
       _loadDashboards();
@@ -145,7 +173,12 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
       _hasLoadedOnce = true;
     });
     updateKeepAlive();
-    await _loadWarehouseProductNames();
+
+    if (_type.usesWarehouseProductSearch) {
+      await _loadWarehouseProductNames();
+    }
+
+    if (!mounted) return;
 
     if (result.isOffline) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -187,26 +220,40 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
     setState(() => _warehouseProductNames = Map.fromEntries(entries));
   }
 
+  void _showNetworkDashboardError(Object error, {String? deleteMessage}) {
+    if (!mounted) return;
+    setState(() => _isOffline = isNetworkError(error));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isNetworkError(error)
+              ? (deleteMessage ??
+                  '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.')
+              : '❌ Помилка: $error',
+        ),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
+
   void _openModuleBuilder() {
-    showModalBottomSheet(
+    showFinLapaBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => ModuleBuilderModal(
-        dashboardType: Dashboard.typeWarehouse,
-        onSave: (moduleName, fields, iconCode, colorValue, _) async {
+        dashboardType: _sheetType,
+        onSave: (moduleName, fields, iconCode, colorValue, isWarehouseLinked) async {
           final newDashboard = Dashboard(
             title: moduleName,
             fields: fields,
             iconCode: iconCode,
             colorValue: colorValue,
-            type: Dashboard.typeWarehouse,
+            type: _sheetType,
+            isWarehouseLinked:
+                _type.supportsWarehouseLink ? isWarehouseLinked : false,
           );
 
           try {
-            // Read-Before-Write: репозиторій сам читає свіжий список з хмари.
             final latest = await _dashboardRepository.createDashboard(
               user: widget.user,
               dashboard: newDashboard,
@@ -220,6 +267,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
           } catch (error) {
             if (!mounted) return;
             setState(() => _isOffline = isNetworkError(error));
+            if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
@@ -247,11 +295,8 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
       return;
     }
 
-    showModalBottomSheet(
+    showFinLapaBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => DashboardManageModal(
         dashboard: dashboard,
         onArchive: () => _archiveDashboard(dashboard),
@@ -286,24 +331,12 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
         ),
       );
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _isOffline = isNetworkError(error));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isNetworkError(error)
-                ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
-                : '❌ Помилка: $error',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      _showNetworkDashboardError(error);
     }
   }
 
   Future<void> _archiveDashboard(Dashboard dashboard) async {
     try {
-      // Read-Before-Write: оновлюємо запис у свіжому хмарному списку.
       final latest = await _dashboardRepository.updateDashboard(
         user: widget.user,
         oldTitle: dashboard.title,
@@ -321,18 +354,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
         ),
       );
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _isOffline = isNetworkError(error));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isNetworkError(error)
-                ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
-                : '❌ Помилка: $error',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      _showNetworkDashboardError(error);
     }
   }
 
@@ -345,7 +367,6 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
     if (!confirmed || !mounted) return;
 
     try {
-      // Read-Before-Write: репозиторій повертає свіжий список без видаленого.
       final latest = await _dashboardRepository.deleteDashboard(
         user: widget.user,
         title: dashboard.title,
@@ -362,17 +383,10 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
         ),
       );
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _isOffline = isNetworkError(error));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isNetworkError(error)
-                ? '❌ Немає зв\'язку. Видалення дашборда потребує стабільного інтернету.'
-                : '❌ Помилка: $error',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
+      _showNetworkDashboardError(
+        error,
+        deleteMessage:
+            '❌ Немає зв\'язку. Видалення дашборда потребує стабільного інтернету.',
       );
     }
   }
@@ -380,31 +394,24 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   Future<void> _onReorderActiveDashboards(int oldIndex, int newIndex) async {
     if (_isOffline) return;
 
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
-    }
-
-    // Знімок поточного (кешованого) стану для відкату при помилці.
     final previousDashboards = List<Dashboard>.from(_dashboards);
 
     final active = List<Dashboard>.from(_activeDashboards);
     final item = active.removeAt(oldIndex);
     active.insert(newIndex, item);
 
-    // Оптимістично показуємо новий порядок одразу.
     setState(() {
-      _dashboards = _mergeWarehouseDashboards(
-        activeWarehouse: active,
-        hiddenWarehouse: _hiddenDashboards,
-        archivedWarehouse: _archivedDashboards,
+      _dashboards = _mergeReorderedDashboards(
+        active: active,
+        hidden: _hiddenDashboards,
+        archived: _archivedDashboards,
       );
     });
 
     try {
-      // Read-Before-Write: репозиторій застосовує порядок до свіжого хмарного списку.
       final latest = await _dashboardRepository.reorderDashboards(
         user: widget.user,
-        type: Dashboard.typeWarehouse,
+        type: _sheetType,
         orderedActiveTitles: active.map((dashboard) => dashboard.title).toList(),
       );
       if (!mounted) return;
@@ -414,7 +421,6 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
       });
     } catch (error) {
       if (!mounted) return;
-      // Відкочуємо візуальний порядок до кешованого (до перетягування).
       setState(() {
         _dashboards = previousDashboards;
         _isOffline = isNetworkError(error);
@@ -434,7 +440,6 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
 
   Future<void> _restoreDashboard(Dashboard dashboard) async {
     try {
-      // Read-Before-Write: оновлюємо запис у свіжому хмарному списку.
       final latest = await _dashboardRepository.updateDashboard(
         user: widget.user,
         oldTitle: dashboard.title,
@@ -452,18 +457,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
         ),
       );
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _isOffline = isNetworkError(error));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isNetworkError(error)
-                ? '❌ Немає зв\'язку. Зміна дашбордів потребує стабільного інтернету.'
-                : '❌ Помилка: $error',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      _showNetworkDashboardError(error);
     }
   }
 
@@ -483,70 +477,99 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
     );
   }
 
+  Future<void> _saveRecord({
+    required String title,
+    required List<String> fields,
+    required List<String> valuesToSave,
+    Map<String, String>? extraFields,
+    String? recordDateTime,
+  }) async {
+    setState(() => _isSending = true);
+
+    final columns = List<String>.from(fields);
+    final values = List<String>.from(valuesToSave);
+    if (extraFields != null) {
+      extraFields.forEach((key, value) {
+        columns.add(key);
+        values.add(value);
+      });
+    }
+
+    try {
+      await _recordsRepository.appendRecord(
+        user: widget.user,
+        sheetTitle: title,
+        columns: columns,
+        values: values,
+        recordDateTime: recordDateTime,
+      );
+
+      setState(() => _isOffline = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Записано в "$title"'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (error) {
+      if (isNetworkError(error)) {
+        setState(() => _isOffline = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ Немає інтернету. Запис скасовано.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      } else {
+        setState(() => _isOffline = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Записано в "$title"'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+        if (_type.usesWarehouseProductSearch) {
+          await _loadWarehouseProductNames();
+        }
+      }
+    }
+  }
+
   void _openDataEntryForm(Dashboard dashboard) {
     final title = dashboard.title;
     final fields = List<String>.from(dashboard.fields);
 
-    showModalBottomSheet(
+    showFinLapaBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) => DataEntryModal(
         title: title,
         fields: fields,
         isSending: _isSending,
-        onSave: (valuesToSave, {extraFields, recordDateTime}) async {
-          setState(() => _isSending = true);
-
-          try {
-            await _recordsRepository.appendRecord(
-              user: widget.user,
-              sheetTitle: title,
-              columns: fields,
-              values: valuesToSave,
-              recordDateTime: recordDateTime,
-            );
-
-            setState(() => _isOffline = false);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('✅ Записано в "$title"'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            }
-          } catch (error) {
-            if (isNetworkError(error)) {
-              setState(() => _isOffline = true);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('❌ Немає інтернету. Запис скасовано.'),
-                    backgroundColor: Colors.redAccent,
-                  ),
-                );
-              }
-            } else {
-              setState(() => _isOffline = false);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('✅ Записано в "$title"'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-            }
-          } finally {
-            if (mounted) {
-              setState(() => _isSending = false);
-              _loadWarehouseProductNames();
-            }
-          }
-        },
+        isWarehouseLinked:
+            _type.supportsWarehouseLink ? dashboard.isWarehouseLinked : false,
+        user: _type.supportsWarehouseLink ? widget.user : null,
+        dashboardRepository:
+            _type.supportsWarehouseLink ? _dashboardRepository : null,
+        recordsRepository:
+            _type.supportsWarehouseLink ? _recordsRepository : null,
+        onSave: (valuesToSave, {extraFields, recordDateTime}) => _saveRecord(
+          title: title,
+          fields: fields,
+          valuesToSave: valuesToSave,
+          extraFields: extraFields,
+          recordDateTime: recordDateTime,
+        ),
       ),
     );
   }
@@ -592,10 +615,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   }
 
   Widget _buildActiveDashboardCard(Dashboard dashboard) {
-    final iconData = IconData(
-      dashboard.iconCode,
-      fontFamily: 'MaterialIcons',
-    );
+    final iconData = materialIcon(dashboard.iconCode);
     final colorData = Color(dashboard.colorValue);
 
     return Card(
@@ -616,17 +636,34 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
                   children: [
                     CircleAvatar(
                       radius: 18,
-                      backgroundColor: colorData.withOpacity(0.1),
+                      backgroundColor: colorData.withValues(alpha: 0.1),
                       child: Icon(iconData, color: colorData, size: 20),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         dashboard.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 17,
+                        ),
                       ),
                     ),
-                    Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 22),
+                    if (_type.supportsWarehouseLink &&
+                        dashboard.isWarehouseLinked)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Icon(
+                          Icons.inventory_2_outlined,
+                          size: 20,
+                          color: Colors.teal.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    Icon(
+                      Icons.chevron_right,
+                      color: Colors.grey.shade400,
+                      size: 22,
+                    ),
                   ],
                 ),
               ),
@@ -638,39 +675,49 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
               children: [
                 _buildActionButton(
                   Icons.add_circle,
-                  "Додати",
+                  'Додати',
                   colorData,
                   () => _openDataEntryForm(dashboard),
                 ),
-                _buildActionButton(Icons.inventory_2, "Докладно", Colors.blueGrey, () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => HistoryScreen(
-                        user: widget.user,
-                        dashboardTitle: dashboard.title,
-                        dashboardColor: colorData,
-                        dashboardType: dashboard.type,
-                        dashboardFields: dashboard.fields,
+                _buildActionButton(
+                  _type.historyActionIcon,
+                  _type.historyActionLabel,
+                  Colors.blueGrey,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HistoryScreen(
+                          user: widget.user,
+                          dashboardTitle: dashboard.title,
+                          dashboardColor: colorData,
+                          dashboardType: dashboard.type,
+                          dashboardFields: dashboard.fields,
+                        ),
                       ),
-                    ),
-                  );
-                }),
-                _buildActionButton(Icons.edit_document, "Редагувати", Colors.blueGrey, () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => EditTab(
-                        user: widget.user,
-                        dashboard: dashboard.toMap(),
+                    );
+                  },
+                ),
+                _buildActionButton(
+                  Icons.edit_document,
+                  'Редагувати',
+                  Colors.blueGrey,
+                  () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EditTab(
+                          user: widget.user,
+                          dashboard: dashboard.toMap(),
+                        ),
                       ),
-                    ),
-                  );
-                  _loadDashboards();
-                }),
+                    );
+                    _loadDashboards();
+                  },
+                ),
                 _buildActionButton(
                   Icons.settings,
-                  "Налаштування",
+                  'Налаштування',
                   Colors.blueGrey,
                   () => _openDashboardManage(dashboard),
                 ),
@@ -683,10 +730,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
   }
 
   Widget _buildArchivedDashboardCard(Dashboard dashboard) {
-    final iconData = IconData(
-      dashboard.iconCode,
-      fontFamily: 'MaterialIcons',
-    );
+    final iconData = materialIcon(dashboard.iconCode);
     final colorData = Color(dashboard.colorValue);
 
     return Card(
@@ -695,7 +739,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: colorData.withOpacity(0.1),
+          backgroundColor: colorData.withValues(alpha: 0.1),
           child: Icon(iconData, color: colorData, size: 20),
         ),
         title: Text(
@@ -709,6 +753,99 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
           label: const Text('Відновити'),
         ),
       ),
+    );
+  }
+
+  Widget _buildCreateDashboardButton() {
+    return InkWell(
+      onTap: _openModuleBuilder,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          color: Colors.blueAccent.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.blueAccent.withValues(alpha: 0.5),
+            width: 2,
+          ),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_circle_outline, color: Colors.blueAccent, size: 26),
+            SizedBox(width: 12),
+            Text(
+              'Створити новий дашборд',
+              style: TextStyle(
+                color: Colors.blueAccent,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHiddenSection() {
+    if (_filteredHiddenDashboards.isEmpty) return const SizedBox.shrink();
+
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      title: Row(
+        children: [
+          Icon(Icons.visibility_off_outlined, color: Colors.grey.shade700),
+          const SizedBox(width: 8),
+          Text(
+            'Приховані дашборди (${_filteredHiddenDashboards.length})',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+      children: _filteredHiddenDashboards
+          .map(
+            (dashboard) => KeyedSubtree(
+              key: ValueKey('${_type.keyPrefix}-hidden-${dashboard.title}'),
+              child: _buildActiveDashboardCard(dashboard),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Widget _buildArchiveSection() {
+    if (_archivedDashboards.isEmpty) return const SizedBox.shrink();
+
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      title: Row(
+        children: [
+          Icon(Icons.archive_outlined, color: Colors.grey.shade700),
+          const SizedBox(width: 8),
+          Text(
+            'Архів (${_archivedDashboards.length})',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+      children: _archivedDashboards
+          .map(
+            (dashboard) => KeyedSubtree(
+              key: ValueKey('${_type.keyPrefix}-archived-${dashboard.title}'),
+              child: _buildArchivedDashboardCard(dashboard),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -726,7 +863,7 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text("Запис у Google..."),
+            Text('Запис у Google...'),
           ],
         ),
       );
@@ -740,35 +877,11 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
             delegate: SliverChildListDelegate([
               DashboardSearchBar(
                 controller: _searchController,
-                hintText: 'Пошук складів або товарів...',
+                hintText: _type.searchHint,
                 onChanged: (value) => setState(() => _searchQuery = value),
               ),
               const SizedBox(height: 12),
-              if (_isOffline)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_off, color: Colors.redAccent),
-                      SizedBox(width: 10),
-                      Text(
-                        "Офлайн режим (тільки читання)",
-                        style: TextStyle(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              if (_isOffline) const OfflineBanner(),
               if (_isSearchActive &&
                   _filteredActiveDashboards.isEmpty &&
                   _filteredHiddenDashboards.isEmpty)
@@ -781,12 +894,12 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
                   ),
                 )
               else if (!_isSearchActive && _activeDashboards.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 24.0),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 24.0),
                   child: Text(
-                    "Немає складських дашбордів.\nНатисніть 'Створити', щоб додати свій.",
+                    _type.emptyListMessage,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                    style: const TextStyle(color: Colors.grey, fontSize: 16),
                   ),
                 ),
             ]),
@@ -798,11 +911,13 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
             sliver: _canReorder
                 ? SliverReorderableList(
                     itemCount: _filteredActiveDashboards.length,
-                    onReorder: _onReorderActiveDashboards,
+                    onReorderItem: _onReorderActiveDashboards,
                     itemBuilder: (context, index) {
                       final dashboard = _filteredActiveDashboards[index];
                       return ReorderableDelayedDragStartListener(
-                        key: ValueKey('warehouse-active-${dashboard.title}'),
+                        key: ValueKey(
+                          '${_type.keyPrefix}-active-${dashboard.title}',
+                        ),
                         index: index,
                         enabled: true,
                         child: _buildActiveDashboardCard(dashboard),
@@ -824,88 +939,14 @@ class _WarehouseTabState extends State<WarehouseTab> with AutomaticKeepAliveClie
           sliver: SliverList(
             delegate: SliverChildListDelegate([
               const SizedBox(height: 10),
-              InkWell(
-                onTap: _openModuleBuilder,
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.blueAccent.withOpacity(0.5), width: 2),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.add_circle_outline, color: Colors.blueAccent, size: 26),
-                      SizedBox(width: 12),
-                      Text(
-                        "Створити новий дашборд",
-                        style: TextStyle(
-                          color: Colors.blueAccent,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _buildCreateDashboardButton(),
               if (_filteredHiddenDashboards.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: Row(
-                    children: [
-                      Icon(Icons.visibility_off_outlined, color: Colors.grey.shade700),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Приховані дашборди (${_filteredHiddenDashboards.length})',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  children: _filteredHiddenDashboards
-                      .map(
-                        (dashboard) => KeyedSubtree(
-                          key: ValueKey('warehouse-hidden-${dashboard.title}'),
-                          child: _buildActiveDashboardCard(dashboard),
-                        ),
-                      )
-                      .toList(),
-                ),
+                _buildHiddenSection(),
               ],
               if (_archivedDashboards.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: Row(
-                    children: [
-                      Icon(Icons.archive_outlined, color: Colors.grey.shade700),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Архів (${_archivedDashboards.length})',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  children: _archivedDashboards
-                      .map(
-                        (dashboard) => KeyedSubtree(
-                          key: ValueKey('warehouse-archived-${dashboard.title}'),
-                          child: _buildArchivedDashboardCard(dashboard),
-                        ),
-                      )
-                      .toList(),
-                ),
+                _buildArchiveSection(),
               ],
             ]),
           ),

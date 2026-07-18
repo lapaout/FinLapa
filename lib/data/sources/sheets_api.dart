@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 
 import 'package:google_sign_in/google_sign_in.dart';
@@ -756,7 +757,7 @@ class SheetsApi {
     );
 
     if (response.statusCode != 200) {
-      print(
+      debugPrint(
         'SheetsApi: overwrite failed for "$sheetName" '
         '(${response.statusCode}): ${response.body}',
       );

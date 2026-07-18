@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../core/material_icon.dart';
 import '../../core/network_exception.dart';
 import '../../data/repositories/dashboard_repository.dart';
 import '../../data/repositories/sheet_records_repository.dart';
 import '../../models/dashboard.dart';
 import '../../models/sheet_data.dart';
+import '../../utils/ui_helpers.dart';
 import '../../widgets/module_edit_modal.dart';
+import '../../widgets/offline_banner.dart';
 import '../../widgets/records_manager.dart';
 
 class EditTab extends StatefulWidget {
@@ -43,11 +46,8 @@ class _EditTabState extends State<EditTab> {
     final dashboard = Dashboard.fromMap(widget.dashboard);
     _isWarehouse = dashboard.type == Dashboard.typeWarehouse;
     _title = widget.dashboard['title'] ?? 'Без назви';
-    _color = Color(widget.dashboard['color'] ?? Colors.green.value);
-    _icon = IconData(
-      widget.dashboard['icon'] ?? Icons.dashboard.codePoint,
-      fontFamily: 'MaterialIcons',
-    );
+    _color = Color(widget.dashboard['color'] ?? Colors.green.toARGB32());
+    _icon = materialIcon(widget.dashboard['icon'] ?? Icons.dashboard.codePoint);
 
     _fetchData();
   }
@@ -76,6 +76,7 @@ class _EditTabState extends State<EditTab> {
     });
 
     if (result.isOffline && _recentRecords.isNotEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('⚠️ Офлайн: Показано записи з кешу'),
@@ -118,7 +119,7 @@ class _EditTabState extends State<EditTab> {
     setState(() {
       _title = newName;
       _color = Color(newColor);
-      _icon = IconData(newIcon, fontFamily: 'MaterialIcons');
+      _icon = materialIcon(newIcon);
     });
   }
 
@@ -132,33 +133,14 @@ class _EditTabState extends State<EditTab> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        backgroundColor: _color.withOpacity(0.1),
+        backgroundColor: _color.withValues(alpha: 0.1),
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _color))
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_isOffline)
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    color: Colors.redAccent.withOpacity(0.1),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Офлайн режим (тільки читання)',
-                          style: TextStyle(
-                            color: Colors.redAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                if (_isOffline) const OfflineBanner(compact: true),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: Column(
@@ -191,12 +173,9 @@ class _EditTabState extends State<EditTab> {
                           trailing: const Icon(Icons.settings_suggest, color: Colors.blueGrey),
                           onTap: () {
                             if (_isOffline) return;
-                            showModalBottomSheet(
+                            showFinLapaBottomSheet(
                               context: context,
                               isScrollControlled: true,
-                              shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                              ),
                               builder: (context) => ModuleEditModal(
                                 initialDashboard: widget.dashboard,
                                 onSave: (newName, newFields, newIcon, newColor) async {
@@ -212,7 +191,7 @@ class _EditTabState extends State<EditTab> {
                                     );
                                     if (context.mounted) Navigator.pop(context);
                                   } catch (error) {
-                                    if (!mounted) return;
+                                    if (!context.mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(

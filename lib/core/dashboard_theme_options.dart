@@ -1,0 +1,197 @@
+import 'package:flutter/material.dart';
+
+/// Спільна палітра кольорів та іконок для створення/редагування дашбордів.
+class DashboardThemeOptions {
+  DashboardThemeOptions._();
+
+  /// Базові кольори + 5 унікальних відтінків.
+  static const List<Color> colors = [
+    Colors.green,
+    Colors.blue,
+    Colors.amber,
+    Colors.purple,
+    Colors.redAccent,
+    Colors.teal,
+    Colors.black,
+    Colors.indigo,
+    Colors.orange,
+    Colors.pinkAccent,
+    // Унікальні відтінки
+    Color(0xFF39FF14), // неоновий лайм
+    Color(0xFF004D40), // глибокий смарагд
+    Color(0xFFFFB4A2), // пастельний персик
+    Color(0xFF7C4DFF), // насичений фіолетовий
+    Color(0xFF00E5FF), // електричний ціан
+  ];
+
+  /// Базовий набір іконок + 50 додаткових (≈150 загалом).
+  static const List<IconData> icons = [
+    // Фінанси та гроші
+    Icons.monetization_on,
+    Icons.attach_money,
+    Icons.euro,
+    Icons.currency_pound,
+    Icons.currency_bitcoin,
+    Icons.account_balance,
+    Icons.account_balance_wallet,
+    Icons.savings,
+    Icons.credit_card,
+    Icons.receipt,
+    // Торгівля
+    Icons.shopping_cart,
+    Icons.shopping_basket,
+    Icons.shopping_bag,
+    Icons.storefront,
+    Icons.local_shipping,
+    Icons.local_mall,
+    Icons.sell,
+    Icons.price_check,
+    Icons.loyalty,
+    Icons.card_giftcard,
+    // Робота та аналітика
+    Icons.work,
+    Icons.business_center,
+    Icons.cases,
+    Icons.assignment,
+    Icons.folder,
+    Icons.description,
+    Icons.analytics,
+    Icons.trending_up,
+    Icons.pie_chart,
+    Icons.bar_chart,
+    // Техніка
+    Icons.computer,
+    Icons.laptop,
+    Icons.smartphone,
+    Icons.tablet_mac,
+    Icons.watch,
+    Icons.sports_esports,
+    Icons.gamepad,
+    Icons.memory,
+    Icons.mouse,
+    Icons.keyboard,
+    Icons.print,
+    Icons.camera_alt,
+    Icons.headphones,
+    Icons.speaker,
+    Icons.tv,
+    // Авто та транспорт
+    Icons.directions_car,
+    Icons.local_taxi,
+    Icons.two_wheeler,
+    Icons.pedal_bike,
+    Icons.flight,
+    Icons.local_gas_station,
+    // Склад та інструменти
+    Icons.build,
+    Icons.handyman,
+    Icons.construction,
+    Icons.tire_repair,
+    Icons.inventory_2,
+    Icons.layers,
+    Icons.category,
+    Icons.extension,
+    // Дім та інтер'єр
+    Icons.toys,
+    Icons.chair,
+    Icons.bed,
+    Icons.checkroom,
+    Icons.diamond,
+    // Їжа та напої
+    Icons.restaurant,
+    Icons.local_cafe,
+    Icons.local_pizza,
+    Icons.fastfood,
+    Icons.local_bar,
+    Icons.cake,
+    Icons.bakery_dining,
+    Icons.apple,
+    Icons.liquor,
+    Icons.emoji_food_beverage,
+    // Нерухомість
+    Icons.home,
+    Icons.house,
+    Icons.apartment,
+    Icons.domain,
+    Icons.key,
+    // Здоров'я, навчання та спорт
+    Icons.favorite,
+    Icons.health_and_safety,
+    Icons.medical_services,
+    Icons.fitness_center,
+    Icons.sports_soccer,
+    Icons.pets,
+    Icons.school,
+    Icons.menu_book,
+    // Хобі та абстрактні
+    Icons.music_note,
+    Icons.palette,
+    Icons.star,
+    Icons.bolt,
+    Icons.flash_on,
+    Icons.lightbulb,
+    Icons.notifications,
+    Icons.push_pin,
+    Icons.bookmark,
+    Icons.label,
+    Icons.flag,
+    Icons.shield,
+    // Інвестиції та криптовалюти
+    Icons.paid,
+    Icons.currency_exchange,
+    Icons.price_change,
+    Icons.trending_down,
+    Icons.show_chart,
+    Icons.candlestick_chart,
+    Icons.request_quote,
+    Icons.token,
+    // Подорожі та логістика
+    Icons.luggage,
+    Icons.map,
+    Icons.explore,
+    Icons.beach_access,
+    Icons.train,
+    Icons.directions_bus,
+    Icons.ev_station,
+    Icons.connecting_airports,
+    // Сім'я
+    Icons.family_restroom,
+    Icons.child_care,
+    Icons.elderly,
+    Icons.groups,
+    Icons.cottage,
+    // Спорт (додатково)
+    Icons.sports_basketball,
+    Icons.sports_tennis,
+    Icons.sports_martial_arts,
+    Icons.pool,
+    Icons.sports_golf,
+    Icons.sports_volleyball,
+    Icons.sports_hockey,
+    // Техніка (додатково)
+    Icons.router,
+    Icons.wifi,
+    Icons.bluetooth,
+    Icons.battery_charging_full,
+    Icons.developer_board,
+    Icons.smart_toy,
+    Icons.videocam,
+    // Хобі та розваги
+    Icons.brush,
+    Icons.theater_comedy,
+    Icons.movie,
+    Icons.casino,
+    Icons.park,
+    Icons.celebration,
+    Icons.auto_stories,
+    Icons.museum,
+    // Виробництво, здоров'я та природа
+    Icons.factory,
+    Icons.precision_manufacturing,
+    Icons.engineering,
+    Icons.warehouse,
+    Icons.healing,
+    Icons.eco,
+    Icons.water_drop,
+  ];
+}

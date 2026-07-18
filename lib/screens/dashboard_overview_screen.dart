@@ -1,6 +1,8 @@
 import 'dart:math' show max;
 
+import 'package:finlapa/core/money_formatter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../core/linked_income_loader.dart';
@@ -11,6 +13,8 @@ import '../data/repositories/dashboard_repository.dart';
 import '../data/repositories/sheet_records_repository.dart';
 import '../models/dashboard.dart';
 import '../models/sheet_record.dart';
+import '../widgets/offline_banner.dart';
+import '../widgets/stats_widgets.dart';
 
 class _OverviewTableColumn {
   const _OverviewTableColumn({
@@ -64,7 +68,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
         title: widget.dashboardTitle,
         fields: widget.dashboardFields,
         iconCode: Dashboard.defaultIconCode,
-        colorValue: widget.dashboardColor.value,
+        colorValue: widget.dashboardColor.toARGB32(),
         type: Dashboard.typeWarehouse,
       );
 
@@ -84,8 +88,10 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchData() async {
-    setState(() => _isLoading = true);
+  /// [showLoader] — false для pull-to-refresh: стара таблиця лишається на
+  /// екрані, поки триває мережевий запит (спінер показує сам RefreshIndicator).
+  Future<void> _fetchData({bool showLoader = true}) async {
+    if (showLoader) setState(() => _isLoading = true);
 
     if (widget.isWarehouse) {
       await _loadLinkedIncomeRecords();
@@ -120,6 +126,12 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
       _isLoading = false;
     });
   }
+
+  /// Ручне оновлення (pull-to-refresh) — лише читання з хмари, без жодного
+  /// впливу на запис даних: appendRecord/deleteRecord/updateRecord завжди
+  /// пишуть у Google Sheets синхронно, до оновлення кешу. Немає відкладених
+  /// "чернеток", які це оновлення могло би перезаписати чи загубити.
+  Future<void> _handleRefresh() => _fetchData(showLoader: false);
 
   Future<void> _loadLinkedIncomeRecords() async {
     final linkedRecords = await loadLinkedIncomeRecords(
@@ -227,25 +239,6 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     return columns;
   }
 
-  String _formatNumber(num value) {
-    final isWhole = value == value.truncateToDouble();
-    final str = isWhole ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
-
-    final parts = str.split('.');
-    final intPart = parts[0];
-    final isNegative = intPart.startsWith('-');
-    final digits = isNegative ? intPart.substring(1) : intPart;
-
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-
-    final grouped = (isNegative ? '-' : '') + buffer.toString();
-    return parts.length > 1 ? '$grouped.${parts[1]}' : grouped;
-  }
-
   Widget _buildIncomeExpenseStats() {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -256,13 +249,13 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
           end: Alignment.bottomRight,
           colors: [
             widget.dashboardColor,
-            Color.alphaBlend(Colors.black.withOpacity(0.15), widget.dashboardColor),
+            Color.alphaBlend(Colors.black.withValues(alpha: 0.15), widget.dashboardColor),
           ],
         ),
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: widget.dashboardColor.withOpacity(0.35),
+            color: widget.dashboardColor.withValues(alpha: 0.35),
             blurRadius: 14,
             offset: const Offset(0, 6),
           ),
@@ -277,7 +270,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
                 Text(
                   'Загальна сума',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.85),
+                    color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -287,7 +280,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${_formatNumber(_totalAmountCache)} ₴',
+                    '${MoneyFormatter.formatNumber(_totalAmountCache)} ₴',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 26,
@@ -301,7 +294,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
           Container(
             width: 1,
             height: 48,
-            color: Colors.white.withOpacity(0.3),
+            color: Colors.white.withValues(alpha: 0.3),
             margin: const EdgeInsets.symmetric(horizontal: 16),
           ),
           Column(
@@ -310,7 +303,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
               Text(
                 'Записів',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.85),
+                  color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -331,110 +324,6 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     );
   }
 
-  Widget _buildWarehouseStatItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: 22),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              maxLines: 1,
-              style: TextStyle(
-                color: color,
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatDivider() {
-    return Container(
-      width: 1,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      color: Colors.grey.withOpacity(0.2),
-    );
-  }
-
-  Widget _buildProfitBar(num profit) {
-    final Color profitColor;
-    final IconData profitIcon;
-    if (profit > 0) {
-      profitColor = Colors.green.shade600;
-      profitIcon = Icons.arrow_upward_rounded;
-    } else if (profit < 0) {
-      profitColor = Colors.redAccent;
-      profitIcon = Icons.arrow_downward_rounded;
-    } else {
-      profitColor = Colors.grey.shade600;
-      profitIcon = Icons.remove_rounded;
-    }
-
-    final sign = profit > 0 ? '+' : '';
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(8, 16, 8, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: profitColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: profitColor.withOpacity(0.35)),
-      ),
-      child: Row(
-        children: [
-          Icon(profitIcon, color: profitColor, size: 20),
-          const SizedBox(width: 8),
-          Text(
-            'Прибуток',
-            style: TextStyle(
-              color: profitColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text(
-                '$sign${_formatNumber(profit)} ₴',
-                maxLines: 1,
-                style: TextStyle(
-                  color: profitColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildWarehouseStats() {
     final totals = _warehouseStatsCache.totals;
     final spent = totals['spent'] ?? 0;
@@ -447,10 +336,10 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: widget.dashboardColor.withOpacity(0.2)),
+        border: Border.all(color: widget.dashboardColor.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -482,35 +371,35 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: _buildWarehouseStatItem(
+                  child: WarehouseStatItem(
                     icon: Icons.inventory_2_rounded,
                     label: 'Залишок',
-                    value: '${_formatNumber(totals['remaining'] ?? 0)} шт.',
+                    value: '${MoneyFormatter.formatNumber(totals['remaining'] ?? 0)} шт.',
                     color: widget.dashboardColor,
                   ),
                 ),
-                _buildStatDivider(),
+                const WarehouseStatDivider(),
                 Expanded(
-                  child: _buildWarehouseStatItem(
+                  child: WarehouseStatItem(
                     icon: Icons.trending_down_rounded,
                     label: 'Витрачено',
-                    value: '${_formatNumber(spent)} ₴',
+                    value: '${MoneyFormatter.formatNumber(spent)} ₴',
                     color: Colors.redAccent,
                   ),
                 ),
-                _buildStatDivider(),
+                const WarehouseStatDivider(),
                 Expanded(
-                  child: _buildWarehouseStatItem(
+                  child: WarehouseStatItem(
                     icon: Icons.trending_up_rounded,
                     label: 'Зароблено',
-                    value: '${_formatNumber(earned)} ₴',
+                    value: '${MoneyFormatter.formatNumber(earned)} ₴',
                     color: Colors.green.shade600,
                   ),
                 ),
               ],
             ),
           ),
-          _buildProfitBar(profit),
+          WarehouseProfitBar(profit: profit),
         ],
       ),
     );
@@ -657,7 +546,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   ) {
     return Container(
       constraints: const BoxConstraints(minHeight: 48),
-      color: widget.dashboardColor.withOpacity(0.08),
+      color: widget.dashboardColor.withValues(alpha: 0.08),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -703,14 +592,28 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     );
   }
 
+  Widget _buildEmptyDataTable() {
+    return LayoutBuilder(
+      builder: (context, constraints) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: constraints.maxHeight,
+            child: const Center(
+              child: Text(
+                'Записів ще немає',
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDataTable() {
     if (_allData.isEmpty) {
-      return const Center(
-        child: Text(
-          'Записів ще немає',
-          style: TextStyle(color: Colors.grey, fontSize: 16),
-        ),
-      );
+      return _buildEmptyDataTable();
     }
 
     final columns = _buildTableColumns();
@@ -756,8 +659,9 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
                           _buildTableHeaderRow(columns, fixedColumnWidths),
                           Expanded(
                             child: ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
                               itemCount: _allData.length,
-                              cacheExtent: 500,
+                              scrollCacheExtent: const ScrollCacheExtent.pixels(500),
                               addAutomaticKeepAlives: false,
                               itemBuilder: (context, index) {
                                 return RepaintBoundary(
@@ -794,38 +698,24 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        backgroundColor: widget.dashboardColor.withOpacity(0.1),
+        backgroundColor: widget.dashboardColor.withValues(alpha: 0.1),
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: widget.dashboardColor))
           : Column(
               children: [
-                if (_isOffline)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    color: Colors.redAccent.withOpacity(0.1),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Офлайн режим (тільки читання)',
-                          style: TextStyle(
-                            color: Colors.redAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                if (_isOffline) const OfflineBanner(compact: true),
                 if (widget.isWarehouse)
                   _buildWarehouseStats()
                 else
                   _buildIncomeExpenseStats(),
-                Expanded(child: _buildDataTable()),
+                Expanded(
+                  child: RefreshIndicator(
+                    color: widget.dashboardColor,
+                    onRefresh: _handleRefresh,
+                    child: _buildDataTable(),
+                  ),
+                ),
               ],
             ),
     );
