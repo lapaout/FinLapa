@@ -112,6 +112,8 @@ class LocalCacheDataSource {
           ModuleType.expense.defaultEnabled,
       warehouse: prefs.getBool(ModuleType.warehouse.prefsKey) ??
           ModuleType.warehouse.defaultEnabled,
+      analytics: prefs.getBool(ModuleType.analytics.prefsKey) ??
+          ModuleType.analytics.defaultEnabled,
     );
   }
 
@@ -120,6 +122,7 @@ class LocalCacheDataSource {
     await prefs.setBool(ModuleType.income.prefsKey, settings.income);
     await prefs.setBool(ModuleType.expense.prefsKey, settings.expense);
     await prefs.setBool(ModuleType.warehouse.prefsKey, settings.warehouse);
+    await prefs.setBool(ModuleType.analytics.prefsKey, settings.analytics);
   }
 
   Future<void> setModuleEnabled(ModuleType type, bool enabled) async {
@@ -134,34 +137,54 @@ class LocalCacheDataSource {
 
   // --- Active workspace (multi-spreadsheet) ---
 
-  Future<String?> getActiveSpreadsheetId() async {
+  /// Кеш активного workspace у пам'яті протягом сесії (усуває reload диска).
+  static String? _sessionActiveSpreadsheetId;
+  static String? _sessionActiveSpreadsheetName;
+  static bool _sessionWorkspaceLoaded = false;
+
+  Future<void> _ensureSessionWorkspaceLoaded() async {
+    if (_sessionWorkspaceLoaded) return;
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final activeId = prefs.getString(activeSpreadsheetIdKey);
-    if (activeId != null && activeId.isNotEmpty) {
-      return activeId;
+    var activeId = prefs.getString(activeSpreadsheetIdKey);
+    if (activeId == null || activeId.isEmpty) {
+      activeId = prefs.getString(spreadsheetDocIdKey);
     }
-    return prefs.getString(spreadsheetDocIdKey);
+
+    _sessionActiveSpreadsheetId = activeId;
+    _sessionActiveSpreadsheetName = prefs.getString(activeSpreadsheetNameKey);
+    _sessionWorkspaceLoaded = true;
+  }
+
+  Future<String?> getActiveSpreadsheetId() async {
+    await _ensureSessionWorkspaceLoaded();
+    return _sessionActiveSpreadsheetId;
   }
 
   Future<String?> getActiveSpreadsheetName() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    return prefs.getString(activeSpreadsheetNameKey);
+    await _ensureSessionWorkspaceLoaded();
+    return _sessionActiveSpreadsheetName;
   }
 
   Future<void> setActiveWorkspace({
     required String id,
     required String name,
   }) async {
+    _sessionActiveSpreadsheetId = id;
+    _sessionActiveSpreadsheetName = name;
+    _sessionWorkspaceLoaded = true;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(activeSpreadsheetIdKey, id);
     await prefs.setString(activeSpreadsheetNameKey, name);
     await prefs.setString(spreadsheetDocIdKey, id);
-    await prefs.reload();
   }
 
   Future<void> clearActiveWorkspace() async {
+    _sessionActiveSpreadsheetId = null;
+    _sessionActiveSpreadsheetName = null;
+    _sessionWorkspaceLoaded = true;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(activeSpreadsheetIdKey);
     await prefs.remove(activeSpreadsheetNameKey);
@@ -184,6 +207,9 @@ class LocalCacheDataSource {
   Future<String?> getSpreadsheetDocId() => getActiveSpreadsheetId();
 
   Future<void> saveSpreadsheetDocId(String docId) async {
+    _sessionActiveSpreadsheetId = docId;
+    _sessionWorkspaceLoaded = true;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(spreadsheetDocIdKey, docId);
     await prefs.setString(activeSpreadsheetIdKey, docId);

@@ -97,14 +97,14 @@ class SheetRecordsRepository {
       if (columns != null && columns.isNotEmpty) {
         resolvedColumns = columns;
       } else {
-        final existingRows = await SheetsApi.readSheetData(
-          user: user,
-          sheetName: sheetTitle,
-        );
+        final existingRows = await _cache.getSheetRows(sheetTitle);
         resolvedColumns = existingRows.isNotEmpty && existingRows.first.length > 1
             ? existingRows.first.sublist(1)
             : List.generate(values.length, (i) => 'Поле ${i + 1}');
       }
+
+      final recordDate =
+          recordDateTime ?? DateTime.now().toString().substring(0, 16);
 
       await SheetsApi.sendDynamicData(
         user: user,
@@ -114,11 +114,11 @@ class SheetRecordsRepository {
         recordDateTime: recordDateTime,
       );
 
-      final rows = await SheetsApi.readSheetData(
-        user: user,
-        sheetName: sheetTitle,
+      await _appendCachedRow(
+        sheetTitle,
+        [recordDate, ...values.map((e) => e.toString())],
+        columns: resolvedColumns,
       );
-      await _cache.saveSheetRows(sheetTitle, rows);
       print('NETWORK OK [appendRecord]: appended to "$sheetTitle"');
     } catch (error, stackTrace) {
       print('NETWORK ERROR [SheetRecordsRepository]: $error');
@@ -163,11 +163,7 @@ class SheetRecordsRepository {
         rowIndex: rowIndex,
       );
 
-      final rows = await SheetsApi.readSheetData(
-        user: user,
-        sheetName: sheetTitle,
-      );
-      await _cache.saveSheetRows(sheetTitle, rows);
+      await _deleteCachedRow(sheetTitle, rowIndex);
       print('NETWORK OK [deleteRecord]: row $rowIndex in "$sheetTitle"');
     } catch (error, stackTrace) {
       print('NETWORK ERROR [SheetRecordsRepository]: $error');
@@ -183,6 +179,45 @@ class SheetRecordsRepository {
     required List<String> values,
   }) async {
     await _patchCachedRow(sheetTitle, rowIndex, values);
+  }
+
+  Future<void> _appendCachedRow(
+    String sheetTitle,
+    List<String> row, {
+    List<String>? columns,
+  }) async {
+    final rows = await _cache.getSheetRows(sheetTitle);
+    final newRow = row.map((e) => e.toString()).toList();
+
+    if (rows.isEmpty) {
+      final resolvedColumns = columns ??
+          List.generate(
+            newRow.length > 1 ? newRow.length - 1 : 0,
+            (i) => 'Поле ${i + 1}',
+          );
+      await _cache.saveSheetRows(
+        sheetTitle,
+        [
+          ['Дата і час', ...resolvedColumns],
+          newRow,
+        ],
+      );
+      return;
+    }
+
+    rows.add(newRow);
+    await _cache.saveSheetRows(sheetTitle, rows);
+  }
+
+  Future<void> _deleteCachedRow(String sheetTitle, int rowIndex) async {
+    final rows = await _cache.getSheetRows(sheetTitle);
+    if (rows.isEmpty) return;
+
+    final dataRowIndex = rowIndex - 1;
+    if (dataRowIndex < 1 || dataRowIndex >= rows.length) return;
+
+    rows.removeAt(dataRowIndex);
+    await _cache.saveSheetRows(sheetTitle, rows);
   }
 
   Future<void> _patchCachedRow(

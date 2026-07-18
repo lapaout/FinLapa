@@ -5,6 +5,7 @@ import '../data/repositories/settings_repository.dart';
 import '../models/finlapa_spreadsheet.dart';
 import '../widgets/settings_modal.dart';
 import '../widgets/workspace_picker_sheet.dart';
+import 'analytics_overview_screen.dart';
 import 'tabs/expense_tab.dart';
 import 'tabs/income_tab.dart';
 import 'tabs/warehouse_tab.dart';
@@ -39,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showIncome = true;
   bool _showExpense = true;
   bool _showWarehouse = false;
+  bool _showAnalytics = true;
   bool _isLoading = true;
 
   late FinLapaSpreadsheet _activeWorkspace;
@@ -66,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _showIncome = settings.income;
       _showExpense = settings.expense;
       _showWarehouse = settings.warehouse;
+      _showAnalytics = settings.analytics;
       _isLoading = false;
     });
   }
@@ -81,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
         initialIncome: _showIncome,
         initialExpense: _showExpense,
         initialWarehouse: _showWarehouse,
+        initialAnalytics: _showAnalytics,
         onSettingsChanged: _loadSettings,
       ),
     );
@@ -124,7 +128,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final workspaceKey = _activeWorkspace.id;
     final tabCount = (_showIncome ? 1 : 0) +
         (_showExpense ? 1 : 0) +
-        (_showWarehouse ? 1 : 0);
+        (_showWarehouse ? 1 : 0) +
+        (_showAnalytics ? 1 : 0);
     final safeIndex = _currentIndex >= tabCount ? 0 : _currentIndex;
 
     List<Widget> activeTabs = [];
@@ -161,6 +166,22 @@ class _HomeScreenState extends State<HomeScreen> {
       ));
       navItems.add(
         const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Склад'),
+      );
+      tabIndex++;
+    }
+
+    // Аналітика — четвертий головний екран (модуль, керований у налаштуваннях).
+    if (_showAnalytics) {
+      activeTabs.add(AnalyticsOverviewScreen(
+        key: ValueKey('analytics-$workspaceKey'),
+        user: widget.user,
+        isActive: safeIndex == tabIndex,
+      ));
+      navItems.add(
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.analytics_outlined),
+          label: 'Аналітика',
+        ),
       );
     }
 
@@ -209,6 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? BottomNavigationBar(
               currentIndex: safeIndex,
               onTap: (index) => setState(() => _currentIndex = index),
+              type: BottomNavigationBarType.fixed,
               selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
               items: navItems,
             )

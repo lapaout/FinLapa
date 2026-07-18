@@ -9,6 +9,7 @@ class SettingsModal extends StatefulWidget {
   final SettingsRepository settingsRepository;  final bool initialIncome;
   final bool initialExpense;
   final bool initialWarehouse;
+  final bool initialAnalytics;
   final VoidCallback onSettingsChanged;
 
   const SettingsModal({
@@ -16,6 +17,7 @@ class SettingsModal extends StatefulWidget {
     required this.settingsRepository,    required this.initialIncome,
     required this.initialExpense,
     required this.initialWarehouse,
+    required this.initialAnalytics,
     required this.onSettingsChanged,
   });
 
@@ -27,6 +29,7 @@ class _SettingsModalState extends State<SettingsModal> {
   late bool _showIncome;
   late bool _showExpense;
   late bool _showWarehouse;
+  late bool _showAnalytics;
 
   @override
   void initState() {
@@ -34,6 +37,7 @@ class _SettingsModalState extends State<SettingsModal> {
     _showIncome = widget.initialIncome;
     _showExpense = widget.initialExpense;
     _showWarehouse = widget.initialWarehouse;
+    _showAnalytics = widget.initialAnalytics;
   }
 
   Future<void> _toggleModule(ModuleType type, bool enabled) async {
@@ -79,6 +83,15 @@ class _SettingsModalState extends State<SettingsModal> {
             onChanged: (val) {
               setState(() => _showWarehouse = val);
               _toggleModule(ModuleType.warehouse, val);
+            },
+          ),
+          SwitchListTile(
+            title: const Text("Аналітика"),
+            secondary: const Icon(Icons.analytics, color: Colors.blueAccent),
+            value: _showAnalytics,
+            onChanged: (val) {
+              setState(() => _showAnalytics = val);
+              _toggleModule(ModuleType.analytics, val);
             },
           ),
           const Divider(height: 30),

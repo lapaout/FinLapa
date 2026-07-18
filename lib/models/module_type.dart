@@ -2,7 +2,8 @@
 enum ModuleType {
   income('mod_income', true),
   expense('mod_expense', true),
-  warehouse('mod_warehouse', false);
+  warehouse('mod_warehouse', false),
+  analytics('mod_analytics', true);
 
   const ModuleType(this.prefsKey, this.defaultEnabled);
 

@@ -64,17 +64,38 @@ class HistoryDateFilter {
     DateTimeRange? customRange,
     DateTime? now,
   }) {
-    if (filter == 'Всі') {
-      return List<SheetRecord>.from(records);
-    }
+    final filtered = filter == 'Всі'
+        ? List<SheetRecord>.from(records)
+        : records.where((record) {
+            return matchesFilter(
+              row: record.values,
+              filter: filter,
+              customRange: customRange,
+              now: now,
+            );
+          }).toList();
 
-    return records.where((record) {
-      return matchesFilter(
-        row: record.values,
-        filter: filter,
-        customRange: customRange,
-        now: now,
-      );
-    }).toList();
+    return sortByDateDescending(filtered);
+  }
+
+  /// Сортує записи за датою за спаданням: найновіші — першими (зверху).
+  ///
+  /// Записи без валідної дати опускаються донизу зі збереженням порядку
+  /// (за індексом рядка Google Sheets, тобто новіші додані — вище).
+  static List<SheetRecord> sortByDateDescending(List<SheetRecord> records) {
+    final sorted = List<SheetRecord>.from(records);
+    sorted.sort((a, b) {
+      final dateA = a.values.isNotEmpty ? parseDateSafely(a.values.first) : null;
+      final dateB = b.values.isNotEmpty ? parseDateSafely(b.values.first) : null;
+
+      if (dateA == null && dateB == null) {
+        return (b.rowIndex ?? 0).compareTo(a.rowIndex ?? 0);
+      }
+      if (dateA == null) return 1;
+      if (dateB == null) return -1;
+
+      return dateB.compareTo(dateA);
+    });
+    return sorted;
   }
 }

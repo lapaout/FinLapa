@@ -734,10 +734,10 @@ class SheetsApi {
     );
     final clearRes = await http.post(clearUrl, headers: authHeaders);
 
-    // Аркуш може ще не існувати — clear поверне 400, але put/create відновить.
+    // 400 — аркуш ще не існує; put/create відновить. Інші помилки — зупиняємо.
     if (clearRes.statusCode != 200 && clearRes.statusCode != 400) {
-      print(
-        'SheetsApi: clear warning for "$sheetName" '
+      throw Exception(
+        'Не вдалося очистити аркуш "$sheetName" '
         '(${clearRes.statusCode}): ${clearRes.body}',
       );
     }
